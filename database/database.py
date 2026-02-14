@@ -4,6 +4,17 @@ import os
 import datetime
 import secrets
 import base64
+import logging
+
+logger = logging.getLogger("c2_server")
+logging.basicConfig(level=logging.DEBUG, handlers=[
+                        logging.FileHandler(f"c2_dev-{datetime.datetime.now().strftime('%Y%m%d_%H%S')}.log"),
+                        logging.StreamHandler()
+                    ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
+                    )
+
+#print(f"[???] in database/database.py, name is: {__name__}")
+
 
 """
     Table Structures:
@@ -51,18 +62,20 @@ class Database:
             try:
                 if os.environ['db_path']:
                     self.path = os.environ['db_path']
+                    logger.debug(f"set db_path to {self.path}")
             except:
-                #print("__INIT__ => no envvar for db_path")
                 self.path = "./"
+                logger.debug("db_path not set, setting to ./")
             try:
                 if os.environ['db_name']:
                     self.name = self.path + os.environ['db_name']
+                    logger.debug("found db_name, creating {self.name}")
             except:
-                #print("__INIT__ => no envvar for db_name")
                 self.name = self.path + "database.db"
+                logger.debug("db_name not set, database name is {self.name}")
             return
         except:
-            print("__INIT__ => Error configuring database from envvars, defaulting")
+            logger.info("Error configuring database from envvars, defaulting")
             self.name = "database.db"
             return
 
@@ -93,7 +106,7 @@ class Database:
         - Verifies if the table exists in the database.
     """
     def is_table(self, name):
-        #TODO, add logic to prevent sqli
+        # TODO, add logic to prevent sqli
         cmd = f"select name from sqlite_master where name='{name}'"
         con = self.get_con(self.name)
         cur = self.get_cur(con)
@@ -105,9 +118,11 @@ class Database:
             x = x.strip("[],\(\)'")
             if name in x:
                 con.close()
+                logger.debug(f"Found table: {name}")
                 return True
             else:
                 con.close()
+                logger.debug("Couldn't find table")
                 return False
         
     """
@@ -119,37 +134,42 @@ class Database:
         cur = self.get_cur(con)
         #try:
         if name == "zombies":
+            logger.debug("Creating zombies table")
             cmd += "zombieID, state, hostInfo, lastCheckIn)"
             cur.execute(cmd)
             con.commit()
             con.close()
             return True
         elif name == "users":
+            logger.debug("Creating users table")
             cmd += "username, password, lastLogin)"
             cur.execute(cmd)
             con.commit()
             con.close()
             return True
         elif name == "data":
+            logger.debug("Creating data table")
             cmd += "zombieID, token, dataBlob)"
             cur.execute(cmd)
             con.commit()
             con.close()
             return True
         elif name == "sessions":
+            logger.debug("Creating sessions table")
             cmd += "username, sessionID, expire)"
             cur.execute(cmd)
             con.commit()
             con.close()
             return True
         elif name == "commands":
+            logger.debug("Creating commands table")
             cmd += "zombieID, token, dataBlob)"
             cur.execute(cmd)
             con.commit()
             con.close()
             return True
         else:
-            print(f"BUILD_TABLE => couldn't find database {name}, closing")
+            logger.error(f"Couldn't find database {name}, closing")
             return False
         # except:
         #     print("FS ERROR: Cannot commit to DB, closing")
@@ -161,32 +181,31 @@ class Database:
     def init(self):
         tables = ["zombies","data","users","sessions","commands"]
         for x in tables:
-            #print(f"Now testing if {x} exists")
+            logger.debug(f"Now testing if {x} exists")
             if self.is_table(x):
-                #print(f"{x} was found, going to next table...")
+                logger.debug(f"{x} was found, going to next table...")
                 #NEED TO add logic to ensure that table integrity is good.
                 pass
             else:
-                #print(f"{x} was not found, creating")
+                logger.debug(f"{x} was not found, creating")
                 if self.build_table(x):
-                    # print(f"created table {x}")
                     if "users" in x:
                     # Add feature here to add admin users if not existed
                         if self.is_admin():
-                            # print("Admin user found")
+                            logger.debug("Admin user found")
                             pass
                         else:
                             self.add_admin(self.load_admin_cred())
-                            # print("INIT => Added admin user")
+                            logger.debug("Added admin user")
                             pass
                     else:
-                        # print(f"{x} was not users")
+                        logger.debug(f"{x} was not users")
                         pass
                     pass    
                 else:
-                    print(f"INIT => Error on db_init. Couldn't build table {x}. Exiting")
+                    logger.error(f"Error on db_init. Couldn't build table {x}. Exiting")
                     exit()
-        # print("Database Init: Success!")
+        logger.debug("Database Init: Success!")
         return True
     
     """
@@ -196,6 +215,7 @@ class Database:
     def add_admin(self, password):
         con = self.get_con(self.name)
         cur = self.get_cur(con)
+        logger.debug(f"adding user Fr0g with password {self.hash(password)}")
         if self.is_table("users"):
             cmd = "insert into users values ('Fr0g',"
             enc = self.hash(password)
@@ -203,9 +223,10 @@ class Database:
             cur.execute(cmd)
             con.commit()
             cur.close()
+            logger.debug("Created user")
             return True
         else:
-            # print("ADD_ADMIN => ERROR: Couldn't add admin user")
+            logger.error("Couldn't add admin user")
             return False
 
     """
@@ -216,11 +237,14 @@ class Database:
         cur = self.get_cur(con)
         cmd = "select username from users where username='Fr0g'"
         res = cur.execute(cmd)
+        logger.debug(f"Result {res}")
         if res.fetchone() == "Fr0g":
             con.close()
+            logger.debug("Found Fr0g")
             return True
         else:
             con.close()
+            logger.debug("Didn't find Fr0g")
             return False
 
     """
@@ -232,16 +256,19 @@ class Database:
         cmd = f"select username from users where username='{user}'"
         res = cur.execute(cmd)
         username = res.fetchone()
-        #print(username[0])
+        logger.debug(f"Fetched username {username[0]}")
         if username is not None:
             if username[0] == f"{user}":
                 con.close()
+                logger.debug(f"Found username {user}")
                 return True
             else:
                 con.close()
+                logger.debug(f"Found other than username {user}")
                 return False
         else:
             con.close()
+            logger.debug(f"No result")
             return False
 
     """
@@ -253,9 +280,10 @@ class Database:
             plain = str(plaintext)    
             h.update(plain.encode())
             enc = h.hexdigest()
+            logger.debug(f"Generated {enc}")
             return enc
         except:
-            # print("HASH => couldn't hash value. ERROR")
+            logger.error("couldn't hash value. ERROR")
             return None
       
     """
@@ -264,10 +292,10 @@ class Database:
     def load_admin_cred(self):
         try:
             cred = os.environ['admin_cred']
-            # print(f"LOAD_ADMIN_CRED => found {cred} from admin_cred env.")
+            logger.debug(f"Found {cred} from admin_cred env.")
             return cred
         except:
-            print(f"COULDN'T GET DEFAULT ADMIN CRED, EXITING")
+            logger.error(f"COULDN'T GET DEFAULT ADMIN CRED, EXITING")
             exit()
     
     """
@@ -279,16 +307,16 @@ class Database:
             con = self.get_con(self.name)
             cur = con.cursor()
             #cmd += "zombieID, state, hostInfo, lastCheckIn)"
-            # print(f"ADD_ZOMBIE => now attempting to insert zombieID: {zombieID}")
+            logger.debug(f"Now attempting to insert zombieID: {zombieID}")
             cmd = f"insert into zombies values('{zombieID}', 'ALIVE', 'NULL', '{time}')"
-            # print(f"ADD_ZOMBIE => Command to send: {cmd}")
+            logger.debug(f"Command to send: {cmd}")
             res = cur.execute(cmd)
-            #print(f"res: {res}")
+            logger.debug(f"res: {res}")
             con.commit()
             con.close()
             return True
         except:
-            # print(f"ADD_ZOMBIE => couldn't add {zombieID} to database!")
+            logger.error(f"Couldn't add {zombieID} to database!")
             return False
 
     """
@@ -300,6 +328,7 @@ class Database:
         cmd = f"select password from users where username='{user}'"
         res = cur.execute(cmd)
         cred = res.fetchone()
+        logger.debug(f"cred found was {cred}")
         con.close()
         if cred is None:
             return None
@@ -317,15 +346,15 @@ class Database:
             cur.execute(cmd)
             res = cur.fetchone()
             if res is None:
-                # print(f"IS_ZOMBIE => Couldn't find {zombieID}")
+                logger.debug(f"Couldn't find {zombieID}")
                 con.close()
                 return False
             else:
-                # print(f"IS_ZOMBIE => Found {zombieID}")
+                logger.debug(f"Found {zombieID}")
                 con.close()
                 return True
         except:
-            # print(f"IS_ZOMBIE => Error getting {zombieID} from database.")
+            logger.debug(f"Error getting {zombieID} from database.")
             return False
 
     """
@@ -339,7 +368,7 @@ class Database:
         res = cur.execute(cmd)
         z = res.fetchall()
         for x in z:
-            # print(f"GET_ZOMBIES => Found: {x[0]}")
+            #logger.debug(f"Found: {x[0]}")
             zombies.append(x[0])
         con.close()
         return zombies
@@ -351,19 +380,22 @@ class Database:
     def updateTime(self,database,key):
         con = self.get_con(self.name)
         cur = self.get_cur(con)
-        #print(f"UPDATETIME => database:{database}, key:{key}")
+        logger.debug(f"UPDATETIME => database:{database}, key:{key}")
         if database == "zombies":
             cmd = f"update zombies set lastCheckin = '{self.getTime()}' where zombieID='{key}'"
             cur.execute(cmd)
             con.commit()
             con.close()
+            return
         elif database == "users":
             cmd = f"update users set lastLogin = '{self.getTime()}' where userID='{key}'"
             cur.execute(cmd)
             con.commit()
             con.close()
+            return
         else:
-            print("UPDATETIME => ERROR: wrong database supplied to updateTime")
+            logger.error("UPDATETIME => ERROR: wrong database supplied to updateTime")
+            return
 
     """
     - add X minutes to an iso-8601 time string
@@ -374,6 +406,7 @@ class Database:
         delta = datetime.timedelta(minutes=min)
         new_time = t_obj + delta
         new_time = new_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        logger.debug(f"new time is {new_time}")
         return new_time
 
     """
@@ -389,8 +422,10 @@ class Database:
             cur.execute(cmd)
             con.commit()
             con.close()
+            logger.debug("Created Session!")
             return True
         except:
+            logger.error("Couldn't Create Session")
             return False
         
     """
@@ -402,11 +437,14 @@ class Database:
         cmd = f"select sessionID from sessions where sessionID='{sesTok}'"
         res = cur.execute(cmd)
         session = res.fetchone()
+        logger.debug(f"Fetched {session}, checking {sesTok}")
         if session is not None:
             con.close()
+            logger.debug(f"Found {session}")
             return True
         else:
             con.close()
+            logger.error(f"Didn't find {sesTok}")
             return False
 
     """
@@ -418,12 +456,13 @@ class Database:
         cur = self.get_cur(con)
         data = base64.b64encode(data.encode('utf-8'))
         data = data.decode('utf-8')
-        print(f"ADD_COMMAND => Data: {data}")
+        logger.debug(f"encoded command: {data}")
         #cmd += "zombieID, token, dataBlob)"
         cmd = f"insert into commands values('{zombieID}','{token}','{data}')"
         cur.execute(cmd)
         con.commit()
         con.close()
+        logger.debug("Stored command to database")
         return
     
     """
@@ -436,12 +475,13 @@ class Database:
         # No need to encode here as data will be recieved as b64 string
         # data = base64.b64encode(data.encode('utf-8'))
         # data = data.decode('utf-8')
-        print(f"ADD_DATA => Data: {data}")
+        logger.debug(f"Encoded data: {data}")
         #cmd += "zombieID, token, dataBlob)"
         cmd = f"insert into data values('{zombieID}','{token}','{data}')"
         cur.execute(cmd)
         con.commit()
         con.close()
+        logger.debug(f"Stored data to database")
         return
     
     """
@@ -454,12 +494,12 @@ class Database:
             token = self.get_token()
         con = self.get_con(self.name)
         cur = self.get_cur(con)
-        print(f"ADD_FILE => Token: {token}")
         #cmd += "zombieID, token, dataBlob)"
         cmd = f"insert into data values('{zombieID}','{token}','FILE')"
         cur.execute(cmd)
         con.commit()
         con.close()
+        logger.debug(f"Committed {token} to database")
         return
 
     """
@@ -468,22 +508,25 @@ class Database:
     def get_dataBlob(self,zombieID,token,db):
         con = self.get_con(self.name)
         cur = self.get_cur(con)
+        logger.debug(f"Searching for token {token} for zombie {zombieID}")
         #struct: "zombieID, token, dataBlob)"
         cmd = f"select dataBlob from {db} where zombieID='{zombieID}' and token='{token}'"
-        print(f"GET_DATABLOB => cmd: {cmd}")
         res = cur.execute(cmd)
         dataBlob = res.fetchone()
         # print(f"GET_DATABLOB => data:{dataBlob}")
         con.close()
         if dataBlob is None:
+            logger.debug("Nothing found")
             return None
         else:
+            logger.debug(f"Found cmd: {cmd}")
             return dataBlob[0]
         
     """
     - Get all tokens from data for a given zombieID
     """    
     def get_all_dataTok(self,zombieID):
+        logger.debug(f"Pulling all for {zombieID}")
         con = self.get_con(self.name)
         cur = self.get_cur(con)
         cmd = f"select token from data where zombieID='{zombieID}'"
@@ -491,8 +534,10 @@ class Database:
         data = res.fetchall()
         if data is None:
             con.close()
+            logger.debug("Found nothing")
             return None
         else:
+            logger.debug("Found results")
             con.close()
             return data
         
@@ -505,21 +550,22 @@ class Database:
         cur = self.get_cur(con)
         cmd = f"delete from {db} where zombieID='{zombieID}' and token='{token}'"
         cur.execute(cmd)
-        # print("REMOVE_TOK => Now attempting to remove command")
+        logger.debug("Now attempting to remove command")
         try:
             con.commit()
             con.close()
-            # print("REMOVE_TOK => Success")
+            logger.debug("Removed")
             return True
         except:
             con.close()
-            # print("REMOVE_TOK => Fail")
+            logger.debug("Unable to remove")
             return False
 
     """
     - Retrieve all entries in sessions or zombies, then remove them if they are expired / stale
     """    
     def scrub_table(self,table):
+        logger.debug(f"Starting scrub on table {table}")
         con = self.get_con(self.name)
         cur = self.get_cur(con)
         now = self.getTime()
@@ -528,40 +574,38 @@ class Database:
             cmd = "select sessionID, expire from sessions"
             res = cur.execute(cmd)
             sessions = res.fetchall()
-            #print(f"SCRUB_TABLE => Sessions: {sessions}")
+            #logger.debug(f"All sessions: {sessions}")
             #Iterate over each session and remove if expired
             for sess, time in sessions:
-               # print(f"session: {sess}, expires: {time}")
+               # logger.debug(f"session: {sess}, expires: {time}")
                is_expired = self.comp_time(now,time)
                if(is_expired):
                    #remove from db
-                   # print(f"SCRUB_TABLE => Found session {sess} is expired, DELETING!")
+                   logger.debug(f"Found session {sess} is expired, DELETING!")
                    cmd = f"delete from sessions where sessionID='{sess}'"
                    cur.execute(cmd)
-                   con.commit()
-                   # print(f"SCRUB_TABLE => DBG: {cmd}")   
+                   con.commit()   
                    continue
                else:
-                   # print(f"SCRUB_TABLE => Session {sess} is still valid") 
+                   logger.debug(f"Session {sess} is still valid") 
                    continue
         elif table == "zombies":
             cmd = "select zombieID, lastCheckIn from zombies"
             res = cur.execute(cmd)
             zombies = res.fetchall()
-            #print(f"SCRUB_TABLE => Zombies: {zombies}")
+            logger.debug(f"Zombies: {zombies}")
             for zombieID, lastChkin in zombies:
-                # print(f"zombie: {zombieID}, laskChkin: {lastChkin}")
+                logger.debug(f"zombie: {zombieID}, laskChkin: {lastChkin}")
                 expire = self.add_x(15,lastChkin)
                 is_expired = self.comp_time(now, expire)
                 if(is_expired):
-                    # print(f"SCRUB_TABLE => Found zombie {zombieID} is expired, DELETING!")
+                    logger.debug(f"SCRUB_TABLE => Found zombie {zombieID} is expired, DELETING!")
                     cmd = f"delete from zombies where zombieID='{zombieID}'"
                     cur.execute(cmd)
                     con.commit()
-                    # print(f"SCRUB_TABLE => DBG: {cmd}")
                     continue
                 else:
-                    # print(f"SCRUB_TABLE: Zombie {zombieID} is still valid.")
+                    logger.debug(f"SCRUB_TABLE: Zombie {zombieID} is still valid.")
                     continue
         elif table == "commands":
             #Get all current zombie IDs, delete all IDs that arn't active
@@ -569,7 +613,7 @@ class Database:
             cmd = "select zombieID from zombies"
             res = cur.execute(cmd)
             active = res.fetchall()
-            #print(f"SCRUB_TABLE => 'commands': Found Zombies: {active}")
+            #logger.debug(f"Found Zombies: {active}")
             cmd = "select zombieID from commands"
             res = cur.execute(cmd)
             to_check = res.fetchall()
@@ -577,9 +621,9 @@ class Database:
             for zombie in to_check:
                 if zombie not in active:
                     to_rmv.append(zombie)
-            #print(f"SCRUB_TABLE => 'commands': Zombies to remove: {to_rmv}")
+            #logger.debug(f"Zombies to remove: {to_rmv}")
             for zombie in to_rmv:
-                #print(f"IN FOR LOOP -> FOUND ZOMBIE {zombie[0]}")
+                #print(f"[???] in FOR LOOP -> FOUND ZOMBIE {zombie[0]}")
                 cmd = f"delete from commands where zombieID='{zombie[0]}'"
                 #print(f"SCRUB_TABLE => 'commands': now running command:\n {cmd}")
                 cur.execute(cmd)

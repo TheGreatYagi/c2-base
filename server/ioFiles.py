@@ -1,9 +1,23 @@
 from os import makedirs, path, remove, rename
 import secrets
 from base64 import b64decode
+import logging
+from datetime import datetime
+
 """
 - Define way to interact with files on disk
+
+
 """
+logger = logging.getLogger("c2_server")
+logging.basicConfig(level=logging.DEBUG, handlers=[
+                        logging.FileHandler(f"c2_dev-{datetime.now().strftime('%Y%m%d_%H%S')}.log"),
+                        logging.StreamHandler()
+                    ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
+                    )
+
+#print(f"[???] in server/ioFiles.py, name is: {__name__}")
+
 
 
 

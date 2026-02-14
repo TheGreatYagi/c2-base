@@ -1,9 +1,22 @@
 import sched
 import time
+import logging
+from datetime import datetime
 
 """
 - Methods that allow us to check on zombie and session validity
 """
+
+logger = logging.getLogger("c2_server")
+logging.basicConfig(level=logging.DEBUG, handlers=[
+                        logging.FileHandler(f"c2_dev-{datetime.now().strftime('%Y%m%d_%H%S')}.log"),
+                        logging.StreamHandler()
+                    ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
+                    )
+
+
+#print(f"[???] in cron/cron.py, name is: {__name__}")
+
 
 class Cron():
     s = ""
