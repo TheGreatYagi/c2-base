@@ -7,18 +7,21 @@ from datetime import datetime
 """
 - Define way to interact with files on disk
 
-
 """
-logger = logging.getLogger("c2_server")
+logger = logging.getLogger("ioFiles")
 logging.basicConfig(level=logging.DEBUG, handlers=[
                         logging.FileHandler(f"c2_dev-{datetime.now().strftime('%Y%m%d_%H%S')}.log"),
                         logging.StreamHandler()
-                    ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
+                    ], format="%(asctime)s |%(levelname)s| %(name)s->%(funcName)s => %(message)s    "
                     )
 
 #print(f"[???] in server/ioFiles.py, name is: {__name__}")
 
+"""
+REMOVE _build_dirs, expensive checks just to write files
 
+
+"""
 
 
 class ioFiles:
@@ -30,11 +33,12 @@ class ioFiles:
         self.zombieID = zombieID
         self.pre = f"files/pre/{zombieID}"
         self.post = f"files/post/{zombieID}"
+        self._build_dirs()
         return
 
-    def is_directory(self):
+    def _build_dirs(self,path:str):
         try:
-            paths = ['./files/pre/','./files/post/','./files/stale']
+            paths = [f"{path}/files/pre/",f"{path}/files/post/",f"{path}/files/stale"]
             for x in paths:
                 print(f"IS_DIRECTORY => x: {x}")
                 res = path.exists(x)
@@ -61,30 +65,30 @@ class ioFiles:
         
     
     def write_chunk(self,data):
-        if(self.is_directory()):
-            print(f"WRITE_CHUNK => data is type: {type(data)}")
+        # if(self.is_directory()):
+        print(f"WRITE_CHUNK => data is type: {type(data)}")
+        try:
+            # path = f"./files/pre/{zombieID}"
+            print(f"WRITE_CHUNK => NOW OPENING: {self.pre}")
             try:
-                # path = f"./files/pre/{zombieID}"
-                print(f"WRITE_CHUNK => NOW OPENING: {self.pre}")
-                try:
-                    with open(self.pre,'a') as f:
-                        res = f.write(data)
-                        print(f"WRITE_CHUNK => saved {res} bytes")
-                        f.close()
-                        return True
-                except FileNotFoundError as e:
-                    print("WRITE_CHUNK => UNABLE TO WRITE, TRYING ALT....")
-                    with open(self.pre,"w") as f:
-                        res = f.write(data)
-                        print(f"WRITE_CHUNK => saved {res} bytes")
-                        f.close()
-                        return True  
-            except:
-                print(f"WRITE_CHUNK => E1: UNABLE TO WRITE CHUNK: {data}")
-                return False
-        else:
-            print(f"WRITE_CHUNK => E2: UNABLE TO WRITE CHUNK: {data}")
+                with open(self.pre,'a') as f:
+                    res = f.write(data)
+                    print(f"WRITE_CHUNK => saved {res} bytes")
+                    f.close()
+                    return True
+            except FileNotFoundError as e:
+                print("WRITE_CHUNK => UNABLE TO WRITE, TRYING ALT....")
+                with open(self.pre,"w") as f:
+                    res = f.write(data)
+                    print(f"WRITE_CHUNK => saved {res} bytes")
+                    f.close()
+                    return True  
+        except:
+            print(f"WRITE_CHUNK => E1: UNABLE TO WRITE CHUNK: {data}")
             return False
+        # else:
+        #     print(f"WRITE_CHUNK => E2: UNABLE TO WRITE CHUNK: {data}")
+        #     return False
     
     """
     - take the file that was just finished being recived, move it to post directory, and finally remove the original pre file.

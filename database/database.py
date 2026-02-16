@@ -6,11 +6,11 @@ import secrets
 import base64
 import logging
 
-logger = logging.getLogger("c2_server")
+logger = logging.getLogger("database")
 logging.basicConfig(level=logging.DEBUG, handlers=[
                         logging.FileHandler(f"c2_dev-{datetime.datetime.now().strftime('%Y%m%d_%H%S')}.log"),
                         logging.StreamHandler()
-                    ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
+                    ], format="%(asctime)s |%(levelname)s| %(name)s->%(funcName)s => %(message)s    "
                     )
 
 #print(f"[???] in database/database.py, name is: {__name__}")
@@ -41,6 +41,12 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
             - token
     """
 
+"""
+This will be passed into server object and init once instead of many times. 
+This needs to determine if its been built before, and proceed to build one if it doesn't
+init needs to take file_name, file_path, admin_user, admin_pass
+"""
+
 class Database:
 
     """
@@ -69,10 +75,10 @@ class Database:
             try:
                 if os.environ['db_name']:
                     self.name = self.path + os.environ['db_name']
-                    logger.debug("found db_name, creating {self.name}")
+                    logger.debug(f"found db_name, creating {self.name}")
             except:
                 self.name = self.path + "database.db"
-                logger.debug("db_name not set, database name is {self.name}")
+                logger.debug(f"db_name not set, database name is {self.name}")
             return
         except:
             logger.info("Error configuring database from envvars, defaulting")
@@ -655,17 +661,17 @@ class Database:
                 for z, t, d in results:
                     filename = f"{z}={t}"
                     path = f"./files/stale/{filename}"
-                    print(f"now attempting to save data to {path}")
+                    logger.debug(f"now attempting to save data to {path}")
                     with open(path, 'w') as f:
                         f.write(d)
                         f.close()
                 #delete database entry
-                print(f"now deleting zombieID from table: {zombie[0]}")
+                logger.debug(f"now deleting zombieID from table: {zombie[0]}")
                 cmd = f"delete from data where zombieID='{zombie[0]}'"
                 cur.execute(cmd)
                 con.commit()
         else:
-            # print(f"SCRUB_TABLE => {table} not valid option")
+            logger.debug(f"{table} not valid option")
             return
         con.close()
         return
