@@ -197,7 +197,7 @@ class Database:
                 if self.build_table(x):
                     if "users" in x:
                     # Add feature here to add admin users if not existed
-                        if self.is_admin():
+                        if self.has_admin():
                             logger.debug("Admin user found")
                             pass
                         else:
@@ -238,7 +238,7 @@ class Database:
     """
      - Checks if the predefined admin user has been created in the database
     """     
-    def is_admin(self):
+    def has_admin(self):
         con = self.get_con(self.name)
         cur = self.get_cur(con)
         cmd = "select username from users where username='Fr0g'"

@@ -6,6 +6,7 @@ from server import ioFiles
 import os 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger("server")
 logging.basicConfig(level=logging.DEBUG, handlers=[
@@ -24,9 +25,11 @@ class Server:
     app = Flask(__name__)
 
     #Should below also take a database object to manipulate on creation?
-    def __init__(self):
+    def __init__(self,base_path):
         self.config_routes()
         logger.debug("routes configured")
+        self.build_webdirs(base_path)
+        logger.debug("web dirs built")
         # Setup Flask App settings. 
         self.app.config['UPLOAD_FOLDER'] = 'files/post/'
         try:
@@ -35,19 +38,20 @@ class Server:
             logger.error("[-] Unable to find base_path variable, setting to defualt './'")
             base_path = './'
         # ROOT_PATH is for where the webserver templates live. 
-        self.app.config['ROOT_PATH'] = base_path
+        self.app.config['ROOT_PATH'] = base_path # not sure if this is needed
         home = os.environ['HOME']
         # check if web-root exists
 
-        # This is currenlty failing and causing server to not run
-        if os.path(f'{home}/c2-base').exists():
-            logger.debug(f"{home}/c2-base exists, setting this to ROOT_PATH")
-            self.app.config['ROOT_PATH'] = f"{home}/c2-base"
-        else:
-            logger.debug(f"{home}/c2-base doesn't exists.")
-            os.mkdir(f"{home}/c2-base")
-            logger.debug("Created directory, now setting ROOT_PATH")
-            self.app.config['ROOT_PATH'] = f"{home}/c2-base"
+        # # This is currenlty failing and causing server to not run
+        # self.app.config['ROOT_PATH'] = f"{os.environ["HOME"]}/"
+        # if os.path(f'{home}/c2-base').exists(os.environ["HOME"]):
+        #     logger.debug(f"{home}/c2-base exists, setting this to ROOT_PATH")
+        #     self.app.config['ROOT_PATH'] = f"{home}/c2-base"
+        # else:
+        #     logger.debug(f"{home}/c2-base doesn't exists.")
+        #     os.mkdir(f"{home}/c2-base")
+        #     logger.debug("Created directory, now setting ROOT_PATH")
+        #     self.app.config['ROOT_PATH'] = f"{home}/c2-base"
 
     def config_routes(self):
         """
@@ -396,3 +400,38 @@ class Server:
     def run(self):
         self.app.run(port=8080)
         # self.app.run(port=8080, debug=True)
+
+    def build_webdirs(self, base_path) -> bool:
+        """
+        build webroot dir structure based on base_path
+        file structure:
+        <path_to_c2-base>/
+            /files
+                /pre/
+                /post/
+                /stale/
+        """
+        base_dir = Path(base_dir)
+        if base_dir.is_dir():
+            files = base_dir / "files"
+            files.mkdir()
+            for x in ["pre","post","stale"]:
+                try:
+                    to_add = files / x
+                    to_add.mkdir()
+                except FileExistsError:
+                    continue
+                except Exception as e:
+                    logger.error(f"Couldn't create path {x}, found error: {e}")
+                    return False
+            return True
+        else:
+            try:
+                base_dir.mkdir()
+                self.build_dirs(str(base_path))
+            except FileNotFoundError as e:
+                logger.error(f"Unable to make path {str(base_dir)}, closing.")
+                return False
+            except Exception as e:
+                logger.error(f"Unable to create directory, found error {e}")
+                return False
