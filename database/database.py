@@ -13,9 +13,6 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
                     ], format="%(asctime)s |%(levelname)s| %(name)s->%(funcName)s => %(message)s    "
                     )
 
-#print(f"[???] in database/database.py, name is: {__name__}")
-
-
 """
     Table Structures:
         - zombies
@@ -63,7 +60,7 @@ class Database:
     """
     - Set up database variables from OS envvars.
     """
-    def __init__(self):
+    def __init__(self, path="./",name="database.db"):
         try:
             try:
                 if os.environ['db_path']:
@@ -79,6 +76,7 @@ class Database:
             except:
                 self.name = self.path + "database.db"
                 logger.debug(f"db_name not set, database name is {self.name}")
+            self.__setup() # calling setup once at creation instead of needing to do it manually.
             return
         except:
             logger.info("Error configuring database from envvars, defaulting")
@@ -184,7 +182,7 @@ class Database:
     """
         - Check if each table exsists, and if not create it. 
     """   
-    def init(self):
+    def __setup(self):
         tables = ["zombies","data","users","sessions","commands"]
         for x in tables:
             logger.debug(f"Now testing if {x} exists")
@@ -386,7 +384,7 @@ class Database:
     def updateTime(self,database,key):
         con = self.get_con(self.name)
         cur = self.get_cur(con)
-        logger.debug(f"UPDATETIME => database:{database}, key:{key}")
+        logger.debug(f"database:{database}, key:{key}")
         if database == "zombies":
             cmd = f"update zombies set lastCheckin = '{self.getTime()}' where zombieID='{key}'"
             cur.execute(cmd)
@@ -400,7 +398,7 @@ class Database:
             con.close()
             return
         else:
-            logger.error("UPDATETIME => ERROR: wrong database supplied to updateTime")
+            logger.error("wrong database supplied to updateTime")
             return
 
     """

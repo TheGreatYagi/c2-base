@@ -1,12 +1,11 @@
-import multiprocessing
 import time
 #Custom
-from database.database import Database
 from server.server import Server
 import logging
 from datetime import datetime
 from os import environ
 from pathlib import Path
+
 
 
 logger = logging.getLogger("c2_server")
@@ -62,41 +61,14 @@ def put_help() -> None:
  - Set up background jobs to clean up stale database entries.
 """
 
-def scrub_loop(db):
-    """
-    Continuously scrubs database tables in parallel and then recurses.
-    """
-    tables_to_scrub = ["sessions", "zombies", "commands", "data"]
-    processes = []
-
-    for table in tables_to_scrub:
-        process = multiprocessing.Process(target=db.scrub_table, args=(table,))
-        processes.append(process)
-        process.start()
-
-    for process in processes:
-        process.join()
-
-    time.sleep(30)
-    loop = multiprocessing.Process(target=scrub_loop, args=(db,))
-    loop.start()
-    loop.join()
-
 
 if __name__ == "__main__":
-    if (check_envvars()):
-        db = Database()
-        scrub = multiprocessing.Process(target=scrub_loop, args=(db,))
-        scrub.start()
+    if (check_envvars()): 
         logger.debug("Started scrub loop")
-        if db.init():
-            base_dir = environ['base_dir']
-            app = Server(base_dir)
-            logger.debug("Launching Flask!")
-            app.run()
-        else:
-            logger.error("Couldn't init db. Exiting...")
-            exit()
+        base_path = environ['base_path']
+        app = Server(base_path)
+        logger.debug("Launching Flask!")
+        app.run()
     else:
         put_help()
         exit()
