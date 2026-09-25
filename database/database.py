@@ -203,7 +203,7 @@ class Database:
                             logger.debug("Added admin user")
                             pass
                     else:
-                        logger.debug(f"{x} was not users")
+                        #logger.debug(f"{x} was not users")
                         pass
                     pass    
                 else:

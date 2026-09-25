@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, request, make_response, jsonify, send_from_directory, current_app
+from flask import Flask, render_template, redirect, request, make_response, jsonify, send_from_directory
 import base64
 from server import ioFiles
 # from os import path, environ, mkdir
@@ -6,7 +6,8 @@ from os import environ
 import logging
 from datetime import datetime
 from pathlib import Path
-import multiprocessing
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from time import sleep
 
 from database.database import Database
@@ -41,8 +42,10 @@ class Server:
         # ROOT_PATH is for where the webserver templates live. 
         #self.app.config['ROOT_PATH'] = base_path # not sure if this is needed
         #home = environ['HOME']
-        scrub = multiprocessing.Process(target=self.scrub_loop, args=(self.db,))
-        scrub.start() # I want this in Server as well.
+        #scrub = multiprocessing.Process(target=self.scrub_loop, args=(self.db,))
+        #scrub.start() # I want this in Server as well.
+        self.scrub_thread = threading.Thread(target=self.scrub_loop, args=(self.db,), daemon=True)
+        self.scrub_thread.start()
         logger.debug("Started scrub")
         # check if web-root exists
 
@@ -62,20 +65,28 @@ class Server:
         Continuously scrubs database tables in parallel and then recurses.
         """
         tables_to_scrub = ["sessions", "zombies", "commands", "data"]
-        processes = []
 
-        for table in tables_to_scrub:
-            process = multiprocessing.Process(target=self.db.scrub_table, args=(table,))
-            processes.append(process)
-            process.start()
+        with ThreadPoolExecutor(max_workers=len(tables_to_scrub)) as executor:
+            while True:
+                logger.debug("starting scrub cycle")
+                executor.map(db.scrub_table, tables_to_scrub)
+                logger.debug("scrub cycle complete, sleeping")
+                sleep(30)
+        # tables_to_scrub = ["sessions", "zombies", "commands", "data"]
+        # processes = []
 
-        for process in processes:
-            process.join()
+        # for table in tables_to_scrub:
+        #     process = multiprocessing.Process(target=self.db.scrub_table, args=(table,))
+        #     processes.append(process)
+        #     process.start()
 
-        sleep(30)
-        loop = multiprocessing.Process(target=self.scrub_loop, args=(db,))
-        loop.start()
-        loop.join()
+        # for process in processes:
+        #     process.join()
+
+        # sleep(30)
+        # loop = multiprocessing.Process(target=self.scrub_loop, args=(db,))
+        # loop.start()
+        # loop.join()
 
 
     def config_routes(self):
