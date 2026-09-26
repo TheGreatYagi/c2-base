@@ -139,7 +139,7 @@ class Database:
         #try:
         if name == "zombies":
             logger.debug("Creating zombies table")
-            cmd += "zombieID, state, hostInfo, lastCheckIn)"
+            cmd += "zombieID, state, hostInfo, lastCheckIn, sleep)"
             cur.execute(cmd)
             con.commit()
             con.close()
@@ -241,7 +241,7 @@ class Database:
         cur = self.get_cur(con)
         cmd = "select username from users where username='Fr0g'"
         res = cur.execute(cmd)
-        logger.debug(f"Result {res}")
+        #logger.debug(f"Result {res}")
         if res.fetchone() == "Fr0g":
             con.close()
             logger.debug("Found Fr0g")
@@ -311,17 +311,45 @@ class Database:
             con = self.get_con(self.name)
             cur = con.cursor()
             #cmd += "zombieID, state, hostInfo, lastCheckIn)"
-            logger.debug(f"Now attempting to insert zombieID: {zombieID}")
-            cmd = f"insert into zombies values('{zombieID}', 'ALIVE', 'NULL', '{time}')"
+            cmd = f"insert into zombies values('{zombieID}', 'ALIVE', 'NULL', '{time}', '5')"
             logger.debug(f"Command to send: {cmd}")
             res = cur.execute(cmd)
             logger.debug(f"res: {res}")
             con.commit()
             con.close()
+            logger.debug(f"Added zombieID: {zombieID}")
             return True
-        except:
-            logger.error(f"Couldn't add {zombieID} to database!")
+        except Exception as e:
+            logger.error(f"Couldn't add {zombieID} to database with error: {e}")
             return False
+
+    def get_zombie_sleep(self, zombieID):
+        cmd = f"select sleep from zombies where zombieID='{zombieID}'"
+        try:
+            conn = self.get_con(self.name)
+            cur = conn.cursor()
+            logger.debug(f"cmd to send to db: {cmd}")
+            res = cur.execute(cmd)
+            sleep = res.fetchone()[0]
+            logger.debug(f"result is: {sleep}")
+            conn.close()
+            return sleep
+        except Exception as e:
+            logger.error(f"Couldn't get sleep for id {zombieID} for reason: {e}")
+            return None
+
+    def set_zombie_sleep(self, zombieID, sleep: int):
+        cmd = f"update zombies set sleep = '{sleep}' where zombieID='{zombieID}'"
+        logger.debug(f"Now attempting to sleep on id {zombieID} to {sleep}")
+        try:
+            con = self.get_con(self.name)
+            cur = con.cursor()
+            cur.execute(cmd)
+            con.commit()
+            con.close()
+            logger.debug(f"Sucess!")
+        except Exception as e:
+            logger.error(f"Unable to update sleep on id {zombieID} to {sleep}")
 
     """
     - input a username and return their hashed cred from the DB

