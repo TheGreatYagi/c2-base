@@ -574,11 +574,12 @@ class Database:
         cur = self.get_cur(con)
         now = self.getTime()
         if table == "sessions":
+            logger.debug("Started sessions table scrub")
             #First get all current sessions:
             cmd = "select sessionID, expire from sessions"
             res = cur.execute(cmd)
             sessions = res.fetchall()
-            #logger.debug(f"All sessions: {sessions}")
+            logger.debug(f"SESSIONS: found: {sessions}")
             #Iterate over each session and remove if expired
             for sess, time in sessions:
                # logger.debug(f"session: {sess}, expires: {time}")
@@ -594,14 +595,16 @@ class Database:
                    logger.debug(f"Session {sess} is still valid") 
                    continue
         elif table == "zombies":
+            logger.debug("Started zombies table Scrub")
             cmd = "select zombieID, lastCheckIn from zombies"
             res = cur.execute(cmd)
             zombies = res.fetchall()
-            logger.debug(f"Zombies: {zombies}")
+            #logger.debug(f"Zombies: {zombies}")
             for zombieID, lastChkin in zombies:
                 logger.debug(f"zombie: {zombieID}, laskChkin: {lastChkin}")
-                expire = self.add_x(15,lastChkin)
+                expire = self.add_x(3,lastChkin)
                 is_expired = self.comp_time(now, expire)
+                logger.debug(f"zombieID: {zombieID}, is_expired: {is_expired}, expire: {expire}, now: {now}")
                 if(is_expired):
                     logger.debug(f"SCRUB_TABLE => Found zombie {zombieID} is expired, DELETING!")
                     cmd = f"delete from zombies where zombieID='{zombieID}'"
@@ -614,6 +617,7 @@ class Database:
         elif table == "commands":
             #Get all current zombie IDs, delete all IDs that arn't active
             #zombie table will be scrubbed before this branch, assume all ids are valid
+            logger.debug("Started commands table scrub")
             cmd = "select zombieID from zombies"
             res = cur.execute(cmd)
             active = res.fetchall()
@@ -636,6 +640,7 @@ class Database:
         elif table == "data":
             #Get all current zombie IDs, dump each blob to disk of inactive ID and then remove from table
             #zombie table will be scrubbed before this branch, assume all ids are valid
+            logger.debug("Started data table scrub")
             cmd = "select zombieID from zombies"
             res = cur.execute(cmd)
             active = res.fetchall()
