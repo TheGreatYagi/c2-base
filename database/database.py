@@ -602,7 +602,7 @@ class Database:
             #logger.debug(f"Zombies: {zombies}")
             for zombieID, lastChkin in zombies:
                 logger.debug(f"zombie: {zombieID}, laskChkin: {lastChkin}")
-                expire = self.add_x(3,lastChkin)
+                expire = self.add_x(1,lastChkin)
                 is_expired = self.comp_time(now, expire)
                 logger.debug(f"zombieID: {zombieID}, is_expired: {is_expired}, expire: {expire}, now: {now}")
                 if(is_expired):

