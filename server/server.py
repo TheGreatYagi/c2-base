@@ -70,7 +70,7 @@ class Server:
             while True:
                 logger.debug("starting scrub cycle")
                 executor.map(db.scrub_table, tables_to_scrub)
-                logger.debug("scrub cycle complete, sleeping")
+                #logger.debug("scrub cycle complete, sleeping")
                 sleep(30)
         # tables_to_scrub = ["sessions", "zombies", "commands", "data"]
         # processes = []
@@ -449,7 +449,9 @@ class Server:
                     XYZ/ # starting with zombieIDs, ioFiles will take over
                         /pre
                         /post
-                        /stale
+                /stale  # allows for us to remove zombie and keep files in different location
+                    XYZ/
+
         """
         base_dir = Path(base_path)
         if base_dir.is_dir():
