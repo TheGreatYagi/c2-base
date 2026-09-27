@@ -37,6 +37,9 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
             - zombieID
             - dataBlob
             - token
+        - stale
+            - zombieID
+            - date
     """
 
 """
@@ -174,6 +177,13 @@ class Database:
             con.commit()
             con.close()
             return True
+        elif name == "stale":
+            logger.debug("Creating stale table")
+            cmd += "zombieID, date)"
+            cur.execute(cmd)
+            con.commit()
+            con.close()
+            return True
         else:
             logger.error(f"Couldn't find database {name}, closing")
             return False
@@ -185,7 +195,7 @@ class Database:
         - Check if each table exsists, and if not create it. 
     """   
     def __setup(self):
-        tables = ["zombies","data","users","sessions","commands"]
+        tables = ["zombies","data","users","sessions","commands","stale"]
         for x in tables:
             logger.debug(f"Now testing if {x} exists")
             if self.is_table(x):
@@ -311,7 +321,7 @@ class Database:
         time = self.getTime()
         try:
             con = self.get_con(self.name)
-            cur = con.cursor()
+            cur = self.get_cur(con)
             #cmd += "zombieID, state, hostInfo, lastCheckIn)"
             cmd = f"insert into zombies values('{zombieID}', 'ALIVE', 'NULL', '{time}', '5')"
             logger.debug(f"Command to send: {cmd}")
@@ -406,6 +416,21 @@ class Database:
             zombies.append(x[0])
         con.close()
         return zombies
+
+    def add_stale(self, zombieID:str, date):
+        con = self.get_con(self.name)
+        cur = con.cursor()
+        cmd = f"insert into stale values('{zombieID}','{date}')"
+        try:
+            cur.execute(cmd)
+            con.commit()
+            con.close()
+            logger.debug(f"added {zombieID} to stale table")
+            return True
+        except Exception as e:
+            logger.debug(f"Couldn't add {zombieID} to stale table due to: {e}")
+            return False
+
 
     """
     - Takes a database name and updates the time in its row. 
@@ -640,7 +665,8 @@ class Database:
                     cmd = f"delete from zombies where zombieID='{zombieID}'"
                     cur.execute(cmd)
                     con.commit()
-                    logger.debug(f"zombie {zombieID} should no longer be in database")
+                    logger.debug(f"zombie {zombieID} should no longer be in zombies table")
+                    self.add_stale(zombieID, self.getTime())
                     continue
                 else:
                     logger.debug(f"SCRUB_TABLE: Zombie {zombieID} is still valid.")

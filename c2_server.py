@@ -14,8 +14,6 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
                         logging.StreamHandler()
                     ], format="%(asctime)s || %(name)s->%(funcName)s:%(levelname)s => %(message)s    "
                     )
-#
-#print(f"[???] in c2_server.py, name is: {__name__}")
 # This disables the majority of flask logs
 flask_log = logging.getLogger('werkzeug')
 flask_log.setLevel(logging.ERROR)
@@ -57,9 +55,6 @@ def put_help() -> None:
     print("OPTIONAL: db_path => path to database file, defaults to base_path")
     print("OPTIONAL: db_name => file to name database, defaults to database.db")
 
-"""
- - Set up background jobs to clean up stale database entries.
-"""
 
 
 if __name__ == "__main__":
