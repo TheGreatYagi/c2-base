@@ -1,0 +1,14 @@
+<html>
+	<body>
+        <div class="container">
+            <h1>An error occured</h1>
+            <h2>Error found:</h2>
+            <p>{{ error }}</p>
+        </div>
+        <div class="container">
+            <h2>Redirecting...</h2>
+            <script src="{{ url_for('static', filename='redirect.js')  }}"></script>
+        </div>
+	</body>
+
+</html>

