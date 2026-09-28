@@ -322,7 +322,7 @@ class Server:
                                 # stale zombie
                                 upload_dir = home_dir / "files" / "stale" / zombieID
                         except Exception as e:
-                            error = f"Couldn't download {fname} from {zombieID} due to {e}"
+                            error = f"Couldn't download {fName} from {zombieID} due to {e}"
                             logger.error(error)
                             return render_template("error.html",error=error)
                         
