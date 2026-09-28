@@ -1,13 +1,29 @@
 <html>
 	<head>
-		<title>Z0mB1eS</title>
+		<title>Active Agents</title>
+    <meta charset="UTF-8">
+		<!-- This links your static CSS file -->
+		<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+	</meta>
+</head>
 	<body>
-		<div class="container">
-		<h1>L1sT 0f Z0mB1eS</h1>
-		<br>
-		{% for x in z %}
-		<h2> {{ x }}: <a href="http://localhost:8080/admin/{{x}}">Interact</a></h2>
-		{% endfor %}
+		<div class="parent-container">
+			<div class="left-box">
+				<h1>Active Agents</h1>
+					<p>
+					{% for x in z %}
+					<h2> {{ x }}: <a href="http://localhost:8080/admin/{{x}}">Interact</a></h2>
+					{% endfor %}
+					</p>
+			</div>
+			<div class="right-box">
+				<h1>Stale Agents</h1>
+					<p>
+						{% for x in s %}
+						<h2> {{ x }}: <a href="http://localhost:8080/admin/stale/{{x}}">View</a></h2>
+						{% endfor %}
+					<p>
+			</div>
 		</div>
 	</body>
 </html>

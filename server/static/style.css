@@ -1,0 +1,12 @@
+.parent-container {
+  display: flex;
+  justify-content: space-between;
+  background-color: #f0f0f0;
+  padding: 20px;
+}
+
+.left-box, .right-box {
+  padding: 10px;
+  background-color: white;
+  border: 1px solid #ccc;
+}

@@ -40,6 +40,7 @@ logging.basicConfig(level=logging.DEBUG, handlers=[
         - stale
             - zombieID
             - date
+            - onDisk
     """
 
 """
@@ -71,20 +72,20 @@ class Database:
                     self.path = os.environ['db_path']
                     logger.debug(f"set db_path to {self.path}")
             except:
-                self.path = "./"
+                self.path = path
                 logger.debug("db_path not set, setting to ./")
             try:
                 if os.environ['db_name']:
                     self.name = self.path + os.environ['db_name']
                     logger.debug(f"found db_name, creating {self.name}")
             except:
-                self.name = self.path + "database.db"
+                self.name = self.path + name
                 logger.debug(f"db_name not set, database name is {self.name}")
             self.__setup() # calling setup once at creation instead of needing to do it manually.
             return
         except:
             logger.info("Error configuring database from envvars, defaulting")
-            self.name = "database.db"
+            self.name = name
             self.path = path
             return
 
@@ -179,7 +180,7 @@ class Database:
             return True
         elif name == "stale":
             logger.debug("Creating stale table")
-            cmd += "zombieID, date)"
+            cmd += "zombieID, date, onDisk)"
             cur.execute(cmd)
             con.commit()
             con.close()
@@ -418,10 +419,10 @@ class Database:
         return zombies
 
     def add_stale(self, zombieID:str, date):
-        con = self.get_con(self.name)
-        cur = con.cursor()
         cmd = f"insert into stale values('{zombieID}','{date}')"
         try:
+            con = self.get_con(self.name)
+            cur = con.cursor()
             cur.execute(cmd)
             con.commit()
             con.close()
@@ -431,6 +432,59 @@ class Database:
             logger.debug(f"Couldn't add {zombieID} to stale table due to: {e}")
             return False
 
+    def get_stale_zombies(self):
+        cmd = f"select zombieID from stale"
+        try:
+            con = self.get_con(self.name)
+            cur = self.get_cur(con)
+            res = cur.execute(cmd)
+            results = [x[0] for x in res.fetchall()]
+            logger.debug(f"found: {results}")
+            return results
+        except Exception as e:
+            logger.error(f"couldn't get stale zombies for reason {e}")
+            return []
+        
+
+    def get_stale_zombie_time(self, zombieID):
+        cmd = f"select date from stale where zombieID='{zombieID}'"
+        try:
+            con = self.get_con(self.name)
+            cur = self.get_cur(con)
+            res = cur.execute(cmd)
+            result = res.fetchone()
+            con.close()
+            return result
+        except Exception as e:
+            logger.error(f"Couldn't get stale time for {zombieID} due to {e}")
+            return []
+
+    def set_stale_ondisk(self, zombieID):
+        # change ondisk for zombie from default False to True
+        pass
+
+    def check_stale_ondisk(self, zombieID):
+        # check if ID has been sent to disk yet. 
+        pass
+
+    def is_stale(self, zombieID):
+        try:
+            con = self.get_con(self.name)
+            cur = self.get_cur(con)
+            cmd = f"select zombieID from stale where zombieID='{zombieID}'"
+            cur.execute(cmd)
+            res = cur.fetchone()
+            if res is None:
+                logger.debug(f"Couldn't find {zombieID}")
+                con.close()
+                return False
+            else:
+                logger.debug(f"Found {zombieID}")
+                con.close()
+                return True
+        except:
+            logger.debug(f"Error getting {zombieID} from database.")
+            return False
 
     """
     - Takes a database name and updates the time in its row. 
